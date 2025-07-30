@@ -1,5 +1,14 @@
 from pathlib import Path
 import sys
+
+# Allow running this module directly by ensuring the project root is in
+# ``sys.path``.  When executed with ``python localapp/app.py`` the Python
+# interpreter only adds the ``localapp`` directory to ``sys.path`` which
+# prevents imports from the sibling ``MOTEUR`` package.  Adding the parent
+# directory resolves ``ModuleNotFoundError`` for these local imports.
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 try:
     from PySide6.QtWidgets import (
         QApplication,
