@@ -1,18 +1,12 @@
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QTabWidget, QPushButton, QTextEdit, QProgressBar, QLineEdit
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QTabWidget
+
+from .image_widget import ImageScraperWidget
 
 
 class _DummySubWidget(QWidget):
     def __init__(self) -> None:
         super().__init__()
-        self.start_btn = QPushButton("Start")
-        self.console = QTextEdit()
-        self.progress_bar = QProgressBar()
-        self.url_edit = QLineEdit()
-        self.folder_edit = QLineEdit()
         layout = QVBoxLayout(self)
-        layout.addWidget(self.start_btn)
-        layout.addWidget(self.console)
-        layout.addWidget(self.progress_bar)
 
     def set_selected_profile(self, profile: str) -> None:
         pass
@@ -24,8 +18,8 @@ class _DummySubWidget(QWidget):
 class ScrapWidget(QWidget):
     def __init__(self) -> None:
         super().__init__()
-        self.modules_order = []
-        self.images_widget = _DummySubWidget()
+        self.modules_order = ["images", "combined"]
+        self.images_widget = ImageScraperWidget()
         self.combined_widget = _DummySubWidget()
         self.tabs = QTabWidget()
         self.tabs.addTab(self.images_widget, "Images")
@@ -38,3 +32,4 @@ class ScrapWidget(QWidget):
 
     def set_rename(self, enabled: bool) -> None:
         pass
+
