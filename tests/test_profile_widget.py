@@ -51,3 +51,25 @@ def test_add_and_delete(tmp_path):
     assert widget.profile_list.count() == 2
     assert len(updates) == 2
     widget.close()
+
+
+def test_profile_selection_updates_image_widget(tmp_path):
+    """Selecting a profile should update the ImageScraperWidget."""
+    from MOTEUR.scraping.widgets.image_widget import ImageScraperWidget
+
+    pm.PROFILES_FILE = tmp_path / "profiles.json"
+    pm.save_profiles([
+        {"name": "p1", "selector": ".a"},
+        {"name": "p2", "selector": ".b"},
+    ])
+
+    app = QApplication.instance() or QApplication([])
+    profile_widget = ProfileWidget()
+    image_widget = ImageScraperWidget()
+    image_widget.refresh_profiles()
+    profile_widget.profile_chosen.connect(image_widget.set_selected_profile)
+
+    profile_widget.profile_list.setCurrentRow(1)
+    assert image_widget.profile_combo.currentText() == "p2"
+    profile_widget.close()
+    image_widget.close()
