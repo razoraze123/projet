@@ -24,7 +24,7 @@ try:
         QFrame,
         QScrollArea,
     )
-    from PySide6.QtCore import Qt, QPropertyAnimation, Slot
+    from PySide6.QtCore import Qt, QPropertyAnimation, Slot, QEasingCurve
     from PySide6.QtGui import QIcon
 except ModuleNotFoundError:
     print("Install dependencies with pip install -r requirements.txt")
@@ -113,7 +113,8 @@ class CollapsibleSection(QWidget):
             self.content_area,
             b"maximumHeight",
         )
-        self.toggle_animation.setDuration(200)
+        self.toggle_animation.setDuration(300)
+        self.toggle_animation.setEasingCurve(QEasingCurve.InOutCubic)
         self.toggle_animation.setStartValue(0)
         self.toggle_animation.setEndValue(0)
 
@@ -146,6 +147,16 @@ class CollapsibleSection(QWidget):
         self.toggle_animation.start()
         if self.hide_title_when_collapsed:
             self.toggle_button.setText(self.original_title if checked else "")
+
+    def collapse(self) -> None:
+        if self.toggle_button.isChecked():
+            self.toggle_button.setChecked(False)
+            self.toggle()
+
+    def expand(self) -> None:
+        if not self.toggle_button.isChecked():
+            self.toggle_button.setChecked(True)
+            self.toggle()
 
     def add_widget(self, widget: QWidget) -> None:
         self.inner_layout.addWidget(widget)
@@ -184,7 +195,7 @@ class MainWindow(QMainWindow):
         self.button_group: list[SidebarButton] = []
         self.compta_buttons: dict[str, SidebarButton] = {}
 
-        compta_section = CollapsibleSection(
+        self.compta_section = CollapsibleSection(
             "\ud83d\udcc1 Comptabilit\u00e9", hide_title_when_collapsed=False
         )
         compta_icons = {
@@ -244,11 +255,11 @@ class MainWindow(QMainWindow):
                         f"Comptabilité : {n}", b
                     )
                 )
-            compta_section.add_widget(btn)
+            self.compta_section.add_widget(btn)
             self.button_group.append(btn)
-        nav_layout.addWidget(compta_section)
+        nav_layout.addWidget(self.compta_section)
 
-        scrap_section = CollapsibleSection("\ud83d\udee0 Scraping")
+        self.scrap_section = CollapsibleSection("\ud83d\udee0 Scraping")
 
         self.profiles_btn = SidebarButton(
             "Profil Scraping",
@@ -257,7 +268,7 @@ class MainWindow(QMainWindow):
         self.profiles_btn.clicked.connect(
             lambda _, b=self.profiles_btn: self.show_profiles(b)
         )
-        scrap_section.add_widget(self.profiles_btn)
+        self.scrap_section.add_widget(self.profiles_btn)
         self.button_group.append(self.profiles_btn)
 
         self.scrap_btn = SidebarButton(
@@ -267,7 +278,7 @@ class MainWindow(QMainWindow):
         self.scrap_btn.clicked.connect(
             lambda _, b=self.scrap_btn: self.show_scrap_page(b)
         )
-        scrap_section.add_widget(self.scrap_btn)
+        self.scrap_section.add_widget(self.scrap_btn)
         self.button_group.append(self.scrap_btn)
 
         btn = SidebarButton(
@@ -277,7 +288,7 @@ class MainWindow(QMainWindow):
         btn.clicked.connect(
             lambda _, b=btn: self.display_content("Scraping : Descriptions", b)
         )
-        scrap_section.add_widget(btn)
+        self.scrap_section.add_widget(btn)
         self.button_group.append(btn)
 
         self.scrap_settings_btn = SidebarButton(
@@ -287,9 +298,17 @@ class MainWindow(QMainWindow):
         self.scrap_settings_btn.clicked.connect(
             lambda _, b=self.scrap_settings_btn: self.show_scraping_settings_page(b)
         )
-        scrap_section.add_widget(self.scrap_settings_btn)
+        self.scrap_section.add_widget(self.scrap_settings_btn)
         self.button_group.append(self.scrap_settings_btn)
-        nav_layout.addWidget(scrap_section)
+        nav_layout.addWidget(self.scrap_section)
+
+        # Collapse the other section when one is expanded
+        self.compta_section.toggle_button.clicked.connect(
+            lambda: self._collapse_other(self.compta_section)
+        )
+        self.scrap_section.toggle_button.clicked.connect(
+            lambda: self._collapse_other(self.scrap_section)
+        )
 
         nav_layout.addStretch()
 
@@ -409,6 +428,13 @@ class MainWindow(QMainWindow):
     def clear_selection(self) -> None:
         for btn in self.button_group:
             btn.setChecked(False)
+
+    def _collapse_other(self, active: CollapsibleSection) -> None:
+        if active.toggle_button.isChecked():
+            other = (
+                self.scrap_section if active is self.compta_section else self.compta_section
+            )
+            other.collapse()
 
     def display_content(self, text: str, button: SidebarButton) -> None:
         self.clear_selection()
