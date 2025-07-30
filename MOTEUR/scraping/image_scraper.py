@@ -58,6 +58,9 @@ def _extract_urls(driver: webdriver.Chrome, selector: str) -> List[str]:
 
 
 def _download(url: str, folder: Path) -> None:
+    if url.startswith("data:image"):
+        print(f"\u26A0\uFE0F Ignoré (image base64) : {url[:50]}...")
+        return
     try:
         resp = requests.get(url, timeout=10)
         resp.raise_for_status()
