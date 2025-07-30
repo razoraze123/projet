@@ -45,15 +45,31 @@ def _scroll_page(driver: webdriver.Chrome, pause: float = 0.5) -> None:
 def _extract_urls(driver: webdriver.Chrome, selector: str) -> List[str]:
     elements = driver.find_elements(By.CSS_SELECTOR, selector)
     urls: Set[str] = set()
+
     for el in elements:
+        tag = el.tag_name.lower()
+
+        # Si c'est une balise <a>, on essaie de récupérer l'attribut href
+        if tag == "a":
+            href = el.get_attribute("href")
+            if href and href.endswith((".jpg", ".jpeg", ".png", ".webp")):
+                urls.add(href)
+                continue
+
+        # Si c'est une balise <img> ou autre avec src / data-src
         src = el.get_attribute("src") or el.get_attribute("data-src")
-        if src:
+        if src and not src.startswith("data:image"):
             urls.add(src)
             continue
+
+        # Vérifie aussi dans le style (cas d'image en background)
         style = el.get_attribute("style") or ""
         match = re.search(r"url\(['\"]?(.*?)['\"]?\)", style)
         if match:
-            urls.add(match.group(1))
+            url = match.group(1)
+            if not url.startswith("data:image"):
+                urls.add(url)
+
     return list(urls)
 
 

@@ -26,6 +26,9 @@ class ProfileWidget(QWidget):
 
         self.name_edit = QLineEdit()
         self.selector_edit = QLineEdit()
+        self.selector_edit.setText(
+            ".woocommerce-product-gallery__image a"
+        )
 
         self.add_btn = QPushButton("Ajouter")
         self.add_btn.clicked.connect(self._add_profile)
