@@ -37,3 +37,13 @@ def test_add_update_delete_profile(tmp_path: Path):
     # Update/delete non-existing returns False
     assert pm.update_profile("missing", "x") is False
     assert pm.delete_profile("missing") is False
+
+
+def test_profile_persistence(tmp_path: Path):
+    """Profiles created via :mod:`profile_manager` should persist on disk."""
+    pm.PROFILES_FILE = tmp_path / "profiles.json"
+
+    pm.add_profile("persist", ".x")
+    # Reload from disk to verify persistence
+    new_list = pm.load_profiles()
+    assert new_list == [{"name": "persist", "selector": ".x"}]
