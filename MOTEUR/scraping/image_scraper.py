@@ -76,7 +76,7 @@ def _download(url: str, folder: Path) -> None:
         f.write(resp.content)
 
 
-def scrape_images(page_url: str, selector: str) -> None:
+def scrape_images(page_url: str, selector: str) -> int:
     print("Chargement...")
     driver = _create_driver()
     try:
@@ -94,6 +94,7 @@ def scrape_images(page_url: str, selector: str) -> None:
         print(f"T\u00e9l\u00e9chargement de l'image n\u00b0{i}/{total}")
         _download(url, images_dir)
     print("\u2705 Termin\u00e9")
+    return total
 
 
 if __name__ == "__main__":
