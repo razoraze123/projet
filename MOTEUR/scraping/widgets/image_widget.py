@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, Slot
 
 from .. import profile_manager as pm
+from .. import history
 
 from ..image_scraper import scrape_images
 
@@ -62,6 +63,9 @@ class ImageScraperWidget(QWidget):
         layout.addWidget(self.progress_bar)
 
         self.refresh_profiles()
+        last = history.load_last_used()
+        self.url_edit.setText(last.get("url", ""))
+        self.folder_edit.setText(last.get("folder", ""))
 
     # ------------------------------------------------------------------
     def _on_profile_changed(self, index: int) -> None:
@@ -110,11 +114,12 @@ class ImageScraperWidget(QWidget):
         self.progress_bar.show()
         self.progress_bar.setRange(0, 0)
         try:
-            scrape_images(url, selector)
+            total = scrape_images(url, selector)
         except Exception as exc:
             self.console.append(f"❌ Erreur: {exc}")
         else:
             self.console.append("✅ Terminé")
+            history.log_scrape(url, self.profile_combo.currentText(), total, folder)
         finally:
             self.progress_bar.hide()
             self.start_btn.setEnabled(True)
