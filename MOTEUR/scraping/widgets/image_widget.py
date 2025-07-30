@@ -8,8 +8,11 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QFileDialog,
     QHBoxLayout,
+    QComboBox,
 )
 from PySide6.QtCore import Qt, Slot
+
+from .. import profile_manager as pm
 
 from ..image_scraper import scrape_images
 
@@ -23,8 +26,10 @@ class ImageScraperWidget(QWidget):
         self.url_edit = QLineEdit()
         self.url_edit.setPlaceholderText("URL de la page")
 
-        self.selector_edit = QLineEdit()
-        self.selector_edit.setPlaceholderText("Sélecteur CSS des images")
+        self.profile_combo = QComboBox()
+        self.profiles: list[dict[str, str]] = []
+        self.selected_selector: str = ""
+        self.profile_combo.currentIndexChanged.connect(self._on_profile_changed)
 
         self.folder_edit = QLineEdit()
         self.folder_edit.setPlaceholderText("Dossier de destination")
@@ -48,21 +53,43 @@ class ImageScraperWidget(QWidget):
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel("URL:"))
         layout.addWidget(self.url_edit)
-        layout.addWidget(QLabel("Sélecteur:"))
-        layout.addWidget(self.selector_edit)
+        layout.addWidget(QLabel("Profil:"))
+        layout.addWidget(self.profile_combo)
         layout.addWidget(QLabel("Dossier:"))
         layout.addLayout(folder_layout)
         layout.addWidget(self.start_btn)
         layout.addWidget(self.console)
         layout.addWidget(self.progress_bar)
 
+        self.refresh_profiles()
+
+    # ------------------------------------------------------------------
+    def _on_profile_changed(self, index: int) -> None:
+        if 0 <= index < len(self.profiles):
+            self.selected_selector = self.profiles[index].get("selector", "")
+        else:
+            self.selected_selector = ""
+
     def set_selected_profile(self, profile: str) -> None:
-        """Placeholder for profile selection support."""
-        self.console.append(f"Profil sélectionné: {profile}")
+        for i, p in enumerate(self.profiles):
+            if p.get("name") == profile:
+                self.profile_combo.setCurrentIndex(i)
+                self.selected_selector = p.get("selector", "")
+                return
+        self.profile_combo.setCurrentIndex(-1)
+        self.selected_selector = ""
 
     def refresh_profiles(self) -> None:
-        """Placeholder to refresh available profiles."""
-        pass
+        self.profiles = pm.load_profiles()
+        current = self.profile_combo.currentText()
+        self.profile_combo.clear()
+        for p in self.profiles:
+            self.profile_combo.addItem(p.get("name", ""))
+        # restore previous selection if possible
+        if current:
+            self.set_selected_profile(current)
+        else:
+            self._on_profile_changed(self.profile_combo.currentIndex())
 
     @Slot()
     def _choose_folder(self) -> None:
@@ -73,7 +100,7 @@ class ImageScraperWidget(QWidget):
     @Slot()
     def _start(self) -> None:
         url = self.url_edit.text().strip()
-        selector = self.selector_edit.text().strip()
+        selector = self.selected_selector.strip()
         folder = self.folder_edit.text().strip() or "images"
         if not url or not selector:
             self.console.append("❌ URL ou sélecteur manquant")
