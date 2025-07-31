@@ -15,6 +15,7 @@ from PySide6.QtCore import Qt, Slot
 from PySide6.QtGui import QClipboard
 
 import sys
+from pathlib import Path
 
 
 class _ConsoleStream:
@@ -45,8 +46,14 @@ class ImageScraperWidget(QWidget):
     def __init__(self) -> None:
         super().__init__()
 
-        self.url_edit = QLineEdit()
-        self.url_edit.setPlaceholderText("URL de la page")
+        self.file_edit = QLineEdit()
+        self.file_edit.setPlaceholderText("Fichier texte contenant les URLs")
+        file_btn = QPushButton("Parcourir…")
+        file_btn.clicked.connect(self._choose_file)
+
+        file_layout = QHBoxLayout()
+        file_layout.addWidget(self.file_edit)
+        file_layout.addWidget(file_btn)
 
         self.profile_combo = QComboBox()
         self.profiles: list[dict[str, str]] = []
@@ -79,8 +86,8 @@ class ImageScraperWidget(QWidget):
         self.progress_bar.hide()
 
         layout = QVBoxLayout(self)
-        layout.addWidget(QLabel("URL:"))
-        layout.addWidget(self.url_edit)
+        layout.addWidget(QLabel("Fichier :"))
+        layout.addLayout(file_layout)
         layout.addWidget(QLabel("Profil:"))
         layout.addWidget(self.profile_combo)
         layout.addWidget(QLabel("Dossier:"))
@@ -91,7 +98,7 @@ class ImageScraperWidget(QWidget):
 
         self.refresh_profiles()
         last = history.load_last_used()
-        self.url_edit.setText(last.get("url", ""))
+        self.file_edit.setText(last.get("url", ""))
         self.folder_edit.setText(last.get("folder", ""))
 
     # ------------------------------------------------------------------
@@ -129,6 +136,17 @@ class ImageScraperWidget(QWidget):
             self.folder_edit.setText(path)
 
     @Slot()
+    def _choose_file(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Choisir un fichier",
+            "",
+            "Text Files (*.txt);;All Files (*)",
+        )
+        if path:
+            self.file_edit.setText(path)
+
+    @Slot()
     def _copy_console(self) -> None:
         """Copy the console's contents to the clipboard."""
         text = self.console.toPlainText()
@@ -138,11 +156,27 @@ class ImageScraperWidget(QWidget):
 
     @Slot()
     def _start(self) -> None:
-        url = self.url_edit.text().strip()
+        file_path = self.file_edit.text().strip()
         selector = self.selected_selector.strip()
         folder = self.folder_edit.text().strip() or "images"
-        if not url or not selector:
-            self.console.append("❌ URL ou sélecteur manquant")
+        if not file_path or not selector:
+            self.console.append("❌ Fichier ou sélecteur manquant")
+            return
+
+        path = Path(file_path)
+        if not path.is_file():
+            self.console.append("❌ Fichier introuvable")
+            return
+
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                urls = [line.strip() for line in f if line.strip()]
+        except Exception as exc:
+            self.console.append(f"❌ Erreur à la lecture du fichier: {exc}")
+            return
+
+        if not urls:
+            self.console.append("❌ Aucun URL dans le fichier")
             return
 
         self.start_btn.setEnabled(False)
@@ -153,14 +187,17 @@ class ImageScraperWidget(QWidget):
         old_stdout = sys.stdout
         sys.stdout = stream
         try:
-            total = scrape_images(url, selector, folder)
-        except Exception as exc:
-            self.console.append(f"❌ Erreur: {exc}")
-        else:
-            self.console.append("✅ Terminé")
-            history.log_scrape(url, self.profile_combo.currentText(), total, folder)
+            for url in urls:
+                try:
+                    total = scrape_images(url, selector, folder)
+                except Exception as exc:
+                    self.console.append(f"❌ Erreur sur {url}: {exc}")
+                else:
+                    self.console.append(f"✅ {url} - {total} images")
+                    history.log_scrape(url, self.profile_combo.currentText(), total, folder)
         finally:
             sys.stdout = old_stdout
             self.progress_bar.hide()
             self.start_btn.setEnabled(True)
+
 

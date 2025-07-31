@@ -24,7 +24,9 @@ def test_scrape_logs_history(tmp_path, monkeypatch):
     widget = ImageScraperWidget()
     widget.refresh_profiles()
     widget.set_selected_profile("p1")
-    widget.url_edit.setText("http://example.com")
+    urls_file = tmp_path / "urls.txt"
+    urls_file.write_text("http://example.com\nhttp://ex2.com\n")
+    widget.file_edit.setText(str(urls_file))
     widget.folder_edit.setText(str(tmp_path))
 
     monkeypatch.setattr(
@@ -35,9 +37,8 @@ def test_scrape_logs_history(tmp_path, monkeypatch):
     widget._start()
 
     entries = history.load_history()
-    assert len(entries) == 1
-    entry = entries[0]
-    assert entry["url"] == "http://example.com"
-    assert entry["profile"] == "p1"
-    assert entry["images"] == 5
+    assert len(entries) == 2
+    assert entries[0]["url"] == "http://example.com"
+    assert entries[1]["url"] == "http://ex2.com"
+    assert all(e["profile"] == "p1" and e["images"] == 5 for e in entries)
     widget.close()
