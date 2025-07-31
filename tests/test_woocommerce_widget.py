@@ -1,6 +1,7 @@
 import sys
 import os
 from pathlib import Path
+import csv
 import pytest
 
 QtWidgets = pytest.importorskip("PySide6.QtWidgets")
@@ -88,3 +89,26 @@ def test_fill_from_storage(tmp_path, monkeypatch):
     }
     widget.close()
     storage.close()
+
+
+def test_export_csv_delimiter(tmp_path, monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    widget = WooCommerceProductWidget(storage_widget=StorageWidget())
+    widget.add_row()
+    name_col = widget.HEADERS.index("Name")
+    widget.table.setItem(0, name_col, QtWidgets.QTableWidgetItem("bob"))
+
+    out_file = tmp_path / "out.csv"
+    monkeypatch.setattr(
+        "MOTEUR.scraping.widgets.woocommerce_widget.QFileDialog.getSaveFileName",
+        lambda *a, **k: (str(out_file), ""),
+    )
+
+    widget.export_csv()
+
+    with open(out_file, newline="", encoding="utf-8") as f:
+        rows = list(csv.reader(f, delimiter=";"))
+
+    assert rows[0] == widget.HEADERS
+    assert rows[1][name_col] == "bob"
+    widget.close()
