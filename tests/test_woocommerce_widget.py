@@ -149,3 +149,33 @@ def test_clean_image_urls_option(tmp_path, monkeypatch):
         "https://www.planetebob.fr/wp-content/uploads/2025/07/bob-unique.webp",
     ]
     widget2.close()
+
+
+def test_fill_multiple_times_no_duplicates(tmp_path, monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    storage = StorageWidget()
+    storage.add_product("bob", ["Unique"])
+
+    widget = WooCommerceProductWidget(storage_widget=storage)
+    widget.fill_from_storage()
+    first_count = widget.table.rowCount()
+
+    # Fill again - row count should remain the same
+    widget.fill_from_storage()
+    assert widget.table.rowCount() == first_count
+
+    out_file = tmp_path / "out.csv"
+    monkeypatch.setattr(
+        "MOTEUR.scraping.widgets.woocommerce_widget.QFileDialog.getSaveFileName",
+        lambda *a, **k: (str(out_file), ""),
+    )
+
+    widget.export_csv()
+
+    with open(out_file, newline="", encoding="utf-8") as f:
+        rows = list(csv.reader(f, delimiter=";"))
+
+    # one header row + one product row
+    assert len(rows) - 1 == first_count
+    widget.close()
+    storage.close()

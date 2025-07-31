@@ -175,6 +175,9 @@ class WooCommerceProductWidget(QWidget):
         if not self.storage_widget:
             return
         products = self.storage_widget.get_products()
+        # Clear any previously populated rows before filling again so
+        # repeated calls don't accumulate duplicates.
+        self.table.setRowCount(0)
         type_col = self.HEADERS.index("Type")
         sku_col = self.HEADERS.index("SKU")
         name_col = self.HEADERS.index("Name")
