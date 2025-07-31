@@ -153,7 +153,7 @@ class ImageScraperWidget(QWidget):
         old_stdout = sys.stdout
         sys.stdout = stream
         try:
-            total = scrape_images(url, selector)
+            total = scrape_images(url, selector, folder)
         except Exception as exc:
             self.console.append(f"❌ Erreur: {exc}")
         else:
