@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, Slot
 from PySide6.QtGui import QClipboard
+from selenium.webdriver.common.by import By
 
 import sys
 from pathlib import Path
@@ -45,8 +46,10 @@ from ..image_scraper import scrape_images, scrape_variants
 class ImageScraperWidget(QWidget):
     """Simple interface to run the image scraper."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, storage_widget=None) -> None:
         super().__init__()
+
+        self.storage_widget = storage_widget
 
         self.export_data: list[dict[str, str]] = []
 
@@ -235,7 +238,13 @@ class ImageScraperWidget(QWidget):
                         total, driver = scrape_images(
                             url, selector, folder, keep_driver=True
                         )
+                        try:
+                            product_name = driver.find_element(By.TAG_NAME, "h1").text.strip()
+                        except Exception:
+                            product_name = ""
                         variants = scrape_variants(driver)
+                        if self.storage_widget:
+                            self.storage_widget.add_product(product_name, list(variants.keys()))
                         driver.quit()
                     else:
                         total = scrape_images(url, selector, folder)

@@ -12,6 +12,8 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Slot
 import csv
+import random
+import string
 
 
 class WooCommerceProductWidget(QWidget):
@@ -40,25 +42,29 @@ class WooCommerceProductWidget(QWidget):
         "Attribute 1 global",
     ]
 
-    def __init__(self) -> None:
+    def __init__(self, *, storage_widget=None) -> None:
         super().__init__()
+        self.storage_widget = storage_widget
         self.table = QTableWidget(0, len(self.HEADERS))
         self.table.setHorizontalHeaderLabels(self.HEADERS)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
 
         add_btn = QPushButton("Ajouter une ligne")
         del_btn = QPushButton("Supprimer la ligne sélectionnée")
+        fill_btn = QPushButton("Remplir")
         import_btn = QPushButton("Importer CSV")
         export_btn = QPushButton("Exporter CSV")
 
         add_btn.clicked.connect(self.add_row)
         del_btn.clicked.connect(self.delete_selected_row)
+        fill_btn.clicked.connect(self.fill_from_storage)
         import_btn.clicked.connect(self.import_csv)
         export_btn.clicked.connect(self.export_csv)
 
         btn_layout = QHBoxLayout()
         btn_layout.addWidget(add_btn)
         btn_layout.addWidget(del_btn)
+        btn_layout.addWidget(fill_btn)
         btn_layout.addStretch()
         btn_layout.addWidget(import_btn)
         btn_layout.addWidget(export_btn)
@@ -120,3 +126,25 @@ class WooCommerceProductWidget(QWidget):
                     item = self.table.item(row, col)
                     data.append(item.text() if item else "")
                 writer.writerow(data)
+
+    # ------------------------------------------------------------------
+    @Slot()
+    def fill_from_storage(self) -> None:
+        """Create new rows from the linked storage widget."""
+        if not self.storage_widget:
+            return
+        products = self.storage_widget.get_products()
+        type_col = self.HEADERS.index("Type")
+        sku_col = self.HEADERS.index("SKU")
+        name_col = self.HEADERS.index("Name")
+
+        for prod in products:
+            self.add_row()
+            row = self.table.rowCount() - 1
+            type_val = "variable" if len(prod["variants"]) > 1 else "simple"
+            sku_val = "SKU-" + "".join(
+                random.choices(string.ascii_uppercase + string.digits, k=8)
+            )
+            self.table.setItem(row, type_col, QTableWidgetItem(type_val))
+            self.table.setItem(row, sku_col, QTableWidgetItem(sku_val))
+            self.table.setItem(row, name_col, QTableWidgetItem(prod["name"]))
