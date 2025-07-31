@@ -135,7 +135,7 @@ class WooCommerceProductWidget(QWidget):
         if not path:
             return
         with open(path, "w", newline="", encoding="utf-8") as f:
-            writer = csv.writer(f, delimiter="\t")
+            writer = csv.writer(f, delimiter=";")
             writer.writerow(self.HEADERS)
             for row in range(self.table.rowCount()):
                 data = []
