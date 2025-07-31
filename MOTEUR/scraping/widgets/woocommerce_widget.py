@@ -18,6 +18,7 @@ import string
 import re
 import unicodedata
 from pathlib import Path
+import requests
 
 
 class WooCommerceProductWidget(QWidget):
@@ -89,12 +90,14 @@ class WooCommerceProductWidget(QWidget):
         add_btn = QPushButton("Ajouter une ligne")
         del_btn = QPushButton("Supprimer la ligne sélectionnée")
         fill_btn = QPushButton("Remplir")
+        check_btn = QPushButton("Vérifier URLs")
         import_btn = QPushButton("Importer CSV")
         export_btn = QPushButton("Exporter CSV")
 
         add_btn.clicked.connect(self.add_row)
         del_btn.clicked.connect(self.delete_selected_row)
         fill_btn.clicked.connect(self.fill_from_storage)
+        check_btn.clicked.connect(self.check_urls)
         import_btn.clicked.connect(self.import_csv)
         export_btn.clicked.connect(self.export_csv)
 
@@ -102,6 +105,7 @@ class WooCommerceProductWidget(QWidget):
         btn_layout.addWidget(add_btn)
         btn_layout.addWidget(del_btn)
         btn_layout.addWidget(fill_btn)
+        btn_layout.addWidget(check_btn)
         btn_layout.addStretch()
         btn_layout.addWidget(import_btn)
         btn_layout.addWidget(export_btn)
@@ -168,6 +172,37 @@ class WooCommerceProductWidget(QWidget):
                     data.append(item.text() if item else "")
                 writer.writerow(data)
 
+    @Slot()
+    def check_urls(self) -> None:
+        """Check that image URLs in the table are reachable and export a CSV."""
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Exporter résultat", "", "CSV Files (*.csv);;All Files (*)"
+        )
+        if not path:
+            return
+
+        img_col = self.HEADERS.index("Images")
+        urls: list[str] = []
+        for row in range(self.table.rowCount()):
+            item = self.table.item(row, img_col)
+            if not item:
+                continue
+            urls.extend(u.strip() for u in item.text().split(", ") if u.strip())
+
+        results: list[tuple[str, str]] = []
+        for url in urls:
+            try:
+                resp = requests.head(url, timeout=5)
+                ok = resp.status_code == 200
+            except Exception:
+                ok = False
+            results.append((url, "oui" if ok else "non"))
+
+        with open(path, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f, delimiter=";")
+            writer.writerow(["URL", "OK"])
+            writer.writerows(results)
+
     # ------------------------------------------------------------------
     @Slot()
     def fill_from_storage(self) -> None:
@@ -207,7 +242,7 @@ class WooCommerceProductWidget(QWidget):
                         local_images.append(p.name)
 
             variant_files = [
-                f"{product_slug}-{self._slugify(v)}.webp" for v in variants
+                f"{product_slug}-{self._slugify(v)}.jpg" for v in variants
             ]
             generic_images = [img for img in local_images if img not in variant_files]
 
@@ -248,8 +283,8 @@ class WooCommerceProductWidget(QWidget):
                     name_var = f"{product_name} {variant}"
                     self.table.setItem(current_row, sku_col, QTableWidgetItem(sku_var))
                     self.table.setItem(current_row, name_col, QTableWidgetItem(name_var))
-                    var_img = self.BASE_IMAGE_URL + f"{product_slug}-{var_slug}.webp"
-                    self.table.setItem(current_row, img_col, QTableWidgetItem(var_img))
+                    var_img = self.BASE_IMAGE_URL + f"{product_slug}-{var_slug}.jpg"
+                self.table.setItem(current_row, img_col, QTableWidgetItem(var_img))
             else:
                 row = self.table.rowCount()
                 self.table.insertRow(row)
