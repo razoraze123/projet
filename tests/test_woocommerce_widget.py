@@ -39,11 +39,22 @@ def test_fill_from_storage():
     storage.add_product("chapeau", ["Unique"])
     widget = WooCommerceProductWidget(storage_widget=storage)
     widget.fill_from_storage()
-    assert widget.table.rowCount() == 2
+    assert widget.table.rowCount() == 4
     type_col = widget.HEADERS.index("Type")
     name_col = widget.HEADERS.index("Name")
+    sku_col = widget.HEADERS.index("SKU")
+
+    parent_sku = widget.table.item(0, sku_col).text()
     assert widget.table.item(0, name_col).text() == "bob"
     assert widget.table.item(0, type_col).text() == "variable"
-    assert widget.table.item(1, type_col).text() == "simple"
+
+    assert widget.table.item(1, type_col).text() == "variation"
+    assert widget.table.item(1, sku_col).text() == f"{parent_sku}-noir"
+    assert widget.table.item(1, name_col).text() == "bob Noir"
+
+    assert widget.table.item(2, type_col).text() == "variation"
+    assert widget.table.item(2, sku_col).text() == f"{parent_sku}-beige"
+
+    assert widget.table.item(3, type_col).text() == "simple"
     widget.close()
     storage.close()
