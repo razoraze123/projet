@@ -11,6 +11,8 @@ import requests
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 
 DEFAULT_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -45,18 +47,49 @@ def _scroll_page(driver: webdriver.Chrome, pause: float = 0.5) -> None:
         last_height = driver.execute_script("return document.body.scrollHeight")
 
 
+def _simulate_slider_interaction(driver: webdriver.Chrome) -> None:
+    try:
+        dots = driver.find_elements(By.CSS_SELECTOR, ".flickity-page-dots .dot")
+        for i, dot in enumerate(dots):
+            driver.execute_script("arguments[0].click();", dot)
+            print(f"🟡 Clic sur le point {i+1}/{len(dots)}")
+            time.sleep(1.2)
+    except Exception as e:
+        print(f"⚠️ Aucun slider détecté ou erreur : {e}")
+
+
 def _extract_urls(driver: webdriver.Chrome, selector: str) -> List[str]:
     elements = driver.find_elements(By.CSS_SELECTOR, selector)
     urls: Set[str] = set()
+
     for el in elements:
-        src = el.get_attribute("src") or el.get_attribute("data-src")
-        if src:
+        tag = el.tag_name.lower()
+
+        # Si c'est une balise <a>, on essaie de récupérer l'attribut href
+        if tag == "a":
+            href = el.get_attribute("href")
+            if href and href.endswith((".jpg", ".jpeg", ".png", ".webp")):
+                urls.add(href)
+                continue
+
+        # Si c'est une balise <img> ou autre avec data-photoswipe-src / src / data-src
+        src = (
+            el.get_attribute("data-photoswipe-src")
+            or el.get_attribute("src")
+            or el.get_attribute("data-src")
+        )
+        if src and not src.startswith("data:image"):
             urls.add(src)
             continue
+
+        # Vérifie aussi dans le style (cas d'image en background)
         style = el.get_attribute("style") or ""
         match = re.search(r"url\(['\"]?(.*?)['\"]?\)", style)
         if match:
-            urls.add(match.group(1))
+            url = match.group(1)
+            if not url.startswith("data:image"):
+                urls.add(url)
+
     return list(urls)
 
 
@@ -64,13 +97,27 @@ def _download(url: str, folder: Path) -> None:
     if url.startswith("data:image"):
         print(f"\u26A0\uFE0F Ignoré (image base64) : {url[:50]}...")
         return
+
     try:
         resp = requests.get(url, timeout=10)
         resp.raise_for_status()
+
+        # Vérifie que la réponse est bien une image
+        content_type = resp.headers.get("Content-Type", "")
+        if not content_type.startswith("image/"):
+            print(f"\u274c Mauvais type de contenu pour {url}: {content_type}")
+            return
+
+        # Ignore les contenus vides ou trop petits pour être une image réelle
+        if not resp.content or len(resp.content) < 100:
+            print(f"\u26A0\uFE0F Réponse vide ou suspecte pour {url}")
+            return
+
     except Exception as exc:
         print(f"\u274c Erreur lors du téléchargement de {url}: {exc}")
         return
 
+    # Enregistrement avec gestion de collision de nom
     name = os.path.basename(url.split("?")[0]) or "image"
     path = folder / name
     base, ext = os.path.splitext(path)
@@ -87,10 +134,19 @@ def scrape_images(page_url: str, selector: str) -> int:
     driver = _create_driver()
     try:
         driver.get(page_url)
+        WebDriverWait(driver, 15).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, selector))
+        )
+        _simulate_slider_interaction(driver)
         _scroll_page(driver)
         urls = _extract_urls(driver, selector)
         total = len(urls)
-        print(f"{total} images trouv\u00e9es")
+        if total == 0:
+            print(
+                "⚠️ Aucune image trouvée. Vérifie si le slider charge bien dynamiquement."
+            )
+        else:
+            print(f"{total} images trouv\u00e9es")
     finally:
         driver.quit()
 
@@ -105,6 +161,145 @@ def scrape_images(page_url: str, selector: str) -> int:
 
 if __name__ == "__main__":
     scrape_images("https://exemple.com/produit", ".product-image img")
+
+# profile_manager.py
+import json
+from pathlib import Path
+from typing import List, Dict
+
+# Path to the JSON file storing profiles. By default it is located at the
+# project root but can be overridden in tests by changing this variable.
+PROFILES_FILE = Path(__file__).resolve().parents[2] / "profiles.json"
+
+
+def load_profiles() -> List[Dict[str, str]]:
+    """Load scraping profiles from :data:`PROFILES_FILE`.
+
+    Returns an empty list if the file does not exist or is empty.
+    """
+    if not PROFILES_FILE.exists():
+        return []
+    try:
+        with open(PROFILES_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, list):
+            return [p for p in data if isinstance(p, dict)]
+    except Exception:
+        pass
+    return []
+
+
+def save_profiles(profiles: List[Dict[str, str]]) -> None:
+    """Write ``profiles`` to :data:`PROFILES_FILE` in JSON format."""
+    with open(PROFILES_FILE, "w", encoding="utf-8") as f:
+        json.dump(profiles, f, indent=2, ensure_ascii=False)
+
+
+def add_profile(name: str, selector: str) -> None:
+    """Add a new profile with ``name`` and ``selector``.
+
+    Raises ``ValueError`` if a profile with the same name already exists.
+    """
+    profiles = load_profiles()
+    if any(p.get("name") == name for p in profiles):
+        raise ValueError(f"Profile '{name}' already exists")
+    profiles.append({"name": name, "selector": selector})
+    save_profiles(profiles)
+
+
+def update_profile(name: str, selector: str) -> bool:
+    """Update an existing profile's selector.
+
+    Returns ``True`` if the profile was updated, ``False`` otherwise.
+    """
+    profiles = load_profiles()
+    updated = False
+    for profile in profiles:
+        if profile.get("name") == name:
+            profile["selector"] = selector
+            updated = True
+            break
+    if updated:
+        save_profiles(profiles)
+    return updated
+
+
+def delete_profile(name: str) -> bool:
+    """Delete the profile with ``name``.
+
+    Returns ``True`` if the profile was removed, ``False`` otherwise.
+    """
+    profiles = load_profiles()
+    new_profiles = [p for p in profiles if p.get("name") != name]
+    if len(new_profiles) == len(profiles):
+        return False
+    save_profiles(new_profiles)
+    return True
+
+# history.py
+import json
+from pathlib import Path
+from datetime import datetime
+from typing import List, Dict
+
+# Path to the history log file at project root
+HISTORY_FILE = Path(__file__).resolve().parents[2] / "scraping_history.json"
+
+# Path to file storing last used url/folder
+LAST_USED_FILE = Path(__file__).resolve().parents[2] / "scraping_last_used.json"
+
+
+def _read_json(path: Path) -> List[Dict]:
+    if not path.exists():
+        return []
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f) or []
+    except Exception:
+        return []
+
+
+def _write_json(path: Path, data) -> None:
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+
+
+def log_scrape(url: str, profile: str, images: int, folder: str) -> None:
+    """Append a scraping entry to :data:`HISTORY_FILE`."""
+    entries = _read_json(HISTORY_FILE)
+    entries.append(
+        {
+            "date": datetime.now().isoformat(timespec="seconds"),
+            "url": url,
+            "profile": profile,
+            "images": images,
+            "folder": folder,
+        }
+    )
+    _write_json(HISTORY_FILE, entries)
+    save_last_used(url, folder)
+
+
+def load_history() -> List[Dict]:
+    """Return the list of logged scraping entries."""
+    return _read_json(HISTORY_FILE)
+
+
+def save_last_used(url: str, folder: str) -> None:
+    _write_json(LAST_USED_FILE, {"url": url, "folder": folder})
+
+
+def load_last_used() -> Dict[str, str]:
+    if not LAST_USED_FILE.exists():
+        return {"url": "", "folder": ""}
+    try:
+        with open(LAST_USED_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, dict):
+            return {"url": data.get("url", ""), "folder": data.get("folder", "")}
+    except Exception:
+        pass
+    return {"url": "", "folder": ""}
 
 # widgets/image_widget.py
 from PySide6.QtWidgets import (
@@ -273,6 +468,152 @@ class ImageScraperWidget(QWidget):
             self.progress_bar.hide()
             self.start_btn.setEnabled(True)
 
+
+# widgets/profile_widget.py
+from PySide6.QtWidgets import (
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QListWidget,
+    QLineEdit,
+    QPushButton,
+    QLabel,
+)
+from PySide6.QtCore import Signal, Slot
+
+from .. import profile_manager as pm
+
+
+class ProfileWidget(QWidget):
+    """Widget to manage scraping profiles."""
+
+    profile_chosen = Signal(str)
+    profiles_updated = Signal()
+
+    def __init__(self) -> None:
+        super().__init__()
+
+        self.profile_list = QListWidget()
+        self.profile_list.itemSelectionChanged.connect(self._on_profile_selected)
+
+        self.name_edit = QLineEdit()
+        self.selector_edit = QLineEdit()
+        self.selector_edit.setText(
+            ".woocommerce-product-gallery__image a"
+        )
+
+        self.add_btn = QPushButton("Ajouter")
+        self.add_btn.clicked.connect(self._add_profile)
+        self.update_btn = QPushButton("Modifier")
+        self.update_btn.clicked.connect(self._update_profile)
+        self.delete_btn = QPushButton("Supprimer")
+        self.delete_btn.clicked.connect(self._delete_profile)
+
+        form_layout = QVBoxLayout()
+        form_layout.addWidget(QLabel("Nom:"))
+        form_layout.addWidget(self.name_edit)
+        form_layout.addWidget(QLabel("Sélecteur CSS:"))
+        form_layout.addWidget(self.selector_edit)
+
+        btn_layout = QHBoxLayout()
+        btn_layout.addWidget(self.add_btn)
+        btn_layout.addWidget(self.update_btn)
+        btn_layout.addWidget(self.delete_btn)
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel("Profils existants:"))
+        layout.addWidget(self.profile_list)
+        layout.addLayout(form_layout)
+        layout.addLayout(btn_layout)
+
+        self._load_profiles()
+
+    # ------------------------------------------------------------------
+    def _load_profiles(self) -> None:
+        """Load profiles from :mod:`profile_manager` and populate the list."""
+        self.profiles = pm.load_profiles()
+        self._refresh_list()
+
+    def _refresh_list(self) -> None:
+        self.profile_list.clear()
+        for profile in self.profiles:
+            self.profile_list.addItem(profile.get("name", ""))
+
+    @Slot()
+    def _on_profile_selected(self) -> None:
+        current = self.profile_list.currentRow()
+        if current < 0 or current >= len(self.profiles):
+            return
+        profile = self.profiles[current]
+        self.name_edit.setText(profile.get("name", ""))
+        self.selector_edit.setText(profile.get("selector", ""))
+        self.profile_chosen.emit(profile.get("name", ""))
+
+    @Slot()
+    def _add_profile(self) -> None:
+        name = self.name_edit.text().strip()
+        selector = self.selector_edit.text().strip()
+        if not name or not selector:
+            return
+        try:
+            pm.add_profile(name, selector)
+        except ValueError:
+            return
+        self._load_profiles()
+        self.profiles_updated.emit()
+
+    @Slot()
+    def _update_profile(self) -> None:
+        name = self.name_edit.text().strip()
+        selector = self.selector_edit.text().strip()
+        if not name or not selector:
+            return
+        if pm.update_profile(name, selector):
+            self._load_profiles()
+
+    @Slot()
+    def _delete_profile(self) -> None:
+        current = self.profile_list.currentRow()
+        if current < 0 or current >= len(self.profiles):
+            return
+        name = self.profiles[current].get("name", "")
+        if pm.delete_profile(name):
+            self._load_profiles()
+            self.profiles_updated.emit()
+
+
+# widgets/history_widget.py
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QTextEdit, QPushButton
+from PySide6.QtCore import Slot
+
+from .. import history
+
+
+class HistoryWidget(QWidget):
+    """Display previous scraping runs."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.text = QTextEdit(readOnly=True)
+        self.refresh_btn = QPushButton("Rafraîchir")
+        self.refresh_btn.clicked.connect(self.refresh)
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(self.text)
+        layout.addWidget(self.refresh_btn)
+
+        self.refresh()
+
+    @Slot()
+    def refresh(self) -> None:
+        entries = history.load_history()
+        lines = []
+        for entry in entries:
+            lines.append(
+                f"{entry.get('date','')} - {entry.get('url','')} ("\
+                f"{entry.get('profile','')} - {entry.get('images',0)} images)"
+            )
+        self.text.setPlainText("\n".join(lines))
 
 # widgets/scrap_widget.py (partie relevante)
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QTabWidget
