@@ -3,6 +3,7 @@ import re
 import time
 from pathlib import Path
 from typing import List, Set
+from urllib.parse import urljoin
 
 import requests
 from selenium import webdriver
@@ -75,6 +76,11 @@ def _extract_urls(driver: webdriver.Chrome, selector: str) -> List[str]:
             or el.get_attribute("src")
             or el.get_attribute("data-src")
         )
+        if src:
+            if src.startswith("//"):
+                src = "https:" + src
+            elif src.startswith("/"):
+                src = urljoin(driver.current_url, src)
         if src and not src.startswith("data:image"):
             urls.add(src)
             continue
