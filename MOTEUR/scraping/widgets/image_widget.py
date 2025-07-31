@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QCheckBox,
     QApplication,
+    QMessageBox,
 )
 from PySide6.QtCore import Qt, Slot
 from PySide6.QtGui import QClipboard
@@ -47,6 +48,8 @@ class ImageScraperWidget(QWidget):
     def __init__(self) -> None:
         super().__init__()
 
+        self.export_data: list[dict[str, str]] = []
+
         self.file_edit = QLineEdit()
         self.file_edit.setPlaceholderText("Fichier texte contenant les URLs")
         file_btn = QPushButton("Parcourir…")
@@ -77,10 +80,13 @@ class ImageScraperWidget(QWidget):
         self.start_btn.clicked.connect(self._start)
         self.copy_btn = QPushButton("Copier")
         self.copy_btn.clicked.connect(self._copy_console)
+        self.export_btn = QPushButton("Exporter")
+        self.export_btn.clicked.connect(self._export_excel)
 
         buttons_layout = QHBoxLayout()
         buttons_layout.addWidget(self.start_btn)
         buttons_layout.addWidget(self.copy_btn)
+        buttons_layout.addWidget(self.export_btn)
 
         self.console = QTextEdit()
         self.console.setReadOnly(True)
@@ -159,6 +165,37 @@ class ImageScraperWidget(QWidget):
         QApplication.clipboard().setText(text, mode=QClipboard.Selection)
 
     @Slot()
+    def _export_excel(self) -> None:
+        """Export scraped variant data to an Excel file."""
+        if not self.export_data:
+            QMessageBox.information(self, "Export", "Aucune donnée à exporter.")
+            return
+
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Enregistrer sous",
+            "",
+            "Excel Files (*.xlsx)",
+        )
+        if not path:
+            return
+
+        try:
+            from openpyxl import Workbook
+
+            wb = Workbook()
+            ws = wb.active
+            ws.append(["URL", "Variante", "Image"])
+            for row in self.export_data:
+                ws.append([row["URL"], row["Variant"], row["Image"]])
+            wb.save(path)
+        except Exception as exc:
+            QMessageBox.critical(self, "Export", f"Erreur: {exc}")
+            return
+
+        QMessageBox.information(self, "Export", "Export termin\u00e9.")
+
+    @Slot()
     def _start(self) -> None:
         file_path = self.file_edit.text().strip()
         selector = self.selected_selector.strip()
@@ -190,6 +227,7 @@ class ImageScraperWidget(QWidget):
         stream = _ConsoleStream(self.console)
         old_stdout = sys.stdout
         sys.stdout = stream
+        self.export_data = []
         try:
             for url in urls:
                 try:
@@ -208,6 +246,7 @@ class ImageScraperWidget(QWidget):
                     self.console.append(f"✅ {url} - {total} images")
                     for name, img in variants.items():
                         self.console.append(f"  • {name}: {img}")
+                        self.export_data.append({"URL": url, "Variant": name, "Image": img})
                     history.log_scrape(url, self.profile_combo.currentText(), total, folder)
         finally:
             sys.stdout = old_stdout
