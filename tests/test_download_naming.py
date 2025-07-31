@@ -19,11 +19,11 @@ def test_download_name_cleanup(tmp_path, monkeypatch):
         return DummyResponse()
     monkeypatch.setattr('MOTEUR.scraping.image_scraper.requests.get', fake_get)
 
-    url1 = 'http://example.com/bob-avec-lacet-409.webp'
-    url2 = 'http://example.com/bob-avec-lacet-1023.webp'
+    url1 = 'http://example.com/bob-avec-lacet-409.jpg'
+    url2 = 'http://example.com/bob-avec-lacet-1023.jpg'
     _download(url1, tmp_path)
     _download(url2, tmp_path)
 
     names = sorted(p.name for p in tmp_path.iterdir())
-    assert names == ['bob-avec-lacet.webp', 'bob-avec-lacet_1.webp']
+    assert names == ['bob-avec-lacet.jpg', 'bob-avec-lacet_1.jpg']
 

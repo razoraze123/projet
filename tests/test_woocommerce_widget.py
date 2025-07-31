@@ -41,12 +41,12 @@ def test_fill_from_storage(tmp_path, monkeypatch):
 
     images_root = tmp_path / "images"
     (images_root / "bob").mkdir(parents=True)
-    (images_root / "bob" / "bob.webp").write_text("x")
-    (images_root / "bob" / "bob-noir.webp").write_text("x")
-    (images_root / "bob" / "bob-beige.webp").write_text("x")
+    (images_root / "bob" / "bob.jpg").write_text("x")
+    (images_root / "bob" / "bob-noir.jpg").write_text("x")
+    (images_root / "bob" / "bob-beige.jpg").write_text("x")
     (images_root / "chapeau").mkdir()
-    (images_root / "chapeau" / "chapeau.webp").write_text("x")
-    (images_root / "chapeau" / "chapeau-unique.webp").write_text("x")
+    (images_root / "chapeau" / "chapeau.jpg").write_text("x")
+    (images_root / "chapeau" / "chapeau-unique.jpg").write_text("x")
 
     monkeypatch.setattr(WooCommerceProductWidget, "IMAGES_ROOT", images_root)
 
@@ -63,29 +63,29 @@ def test_fill_from_storage(tmp_path, monkeypatch):
     assert widget.table.item(0, type_col).text() == "variable"
     images0 = set(widget.table.item(0, img_col).text().split(', '))
     assert images0 == {
-        "https://www.planetebob.fr/wp-content/uploads/2025/07/bob.webp",
-        "https://www.planetebob.fr/wp-content/uploads/2025/07/bob-noir.webp",
-        "https://www.planetebob.fr/wp-content/uploads/2025/07/bob-beige.webp",
+        "https://www.planetebob.fr/wp-content/uploads/2025/07/bob.jpg",
+        "https://www.planetebob.fr/wp-content/uploads/2025/07/bob-noir.jpg",
+        "https://www.planetebob.fr/wp-content/uploads/2025/07/bob-beige.jpg",
     }
 
     assert widget.table.item(1, type_col).text() == "variation"
     assert widget.table.item(1, sku_col).text() == f"{parent_sku}-noir"
     assert widget.table.item(1, name_col).text() == "bob Noir"
     assert widget.table.item(1, img_col).text() == (
-        "https://www.planetebob.fr/wp-content/uploads/2025/07/bob-noir.webp"
+        "https://www.planetebob.fr/wp-content/uploads/2025/07/bob-noir.jpg"
     )
 
     assert widget.table.item(2, type_col).text() == "variation"
     assert widget.table.item(2, sku_col).text() == f"{parent_sku}-beige"
     assert widget.table.item(2, img_col).text() == (
-        "https://www.planetebob.fr/wp-content/uploads/2025/07/bob-beige.webp"
+        "https://www.planetebob.fr/wp-content/uploads/2025/07/bob-beige.jpg"
     )
 
     assert widget.table.item(3, type_col).text() == "simple"
     images3 = set(widget.table.item(3, img_col).text().split(', '))
     assert images3 == {
-        "https://www.planetebob.fr/wp-content/uploads/2025/07/chapeau.webp",
-        "https://www.planetebob.fr/wp-content/uploads/2025/07/chapeau-unique.webp",
+        "https://www.planetebob.fr/wp-content/uploads/2025/07/chapeau.jpg",
+        "https://www.planetebob.fr/wp-content/uploads/2025/07/chapeau-unique.jpg",
     }
     widget.close()
     storage.close()
@@ -121,9 +121,9 @@ def test_clean_image_urls_option(tmp_path, monkeypatch):
 
     images_root = tmp_path / "images"
     (images_root / "bob").mkdir(parents=True)
-    (images_root / "bob" / "bob.webp").write_text("x")
-    (images_root / "bob" / "bob_1.webp").write_text("x")
-    (images_root / "bob" / "bob-unique.webp").write_text("x")
+    (images_root / "bob" / "bob.jpg").write_text("x")
+    (images_root / "bob" / "bob_1.jpg").write_text("x")
+    (images_root / "bob" / "bob-unique.jpg").write_text("x")
 
     monkeypatch.setattr(WooCommerceProductWidget, "IMAGES_ROOT", images_root)
 
@@ -133,8 +133,8 @@ def test_clean_image_urls_option(tmp_path, monkeypatch):
     img_col = widget.HEADERS.index("Images")
     images = widget.table.item(0, img_col).text().split(", ")
     assert images == [
-        "https://www.planetebob.fr/wp-content/uploads/2025/07/bob.webp",
-        "https://www.planetebob.fr/wp-content/uploads/2025/07/bob-unique.webp",
+        "https://www.planetebob.fr/wp-content/uploads/2025/07/bob.jpg",
+        "https://www.planetebob.fr/wp-content/uploads/2025/07/bob-unique.jpg",
     ]
     widget.close()
 
@@ -144,9 +144,9 @@ def test_clean_image_urls_option(tmp_path, monkeypatch):
     widget2.fill_from_storage()
     images2 = widget2.table.item(0, img_col).text().split(", ")
     assert images2 == [
-        "https://www.planetebob.fr/wp-content/uploads/2025/07/bob.webp",
-        "https://www.planetebob.fr/wp-content/uploads/2025/07/bob_1.webp",
-        "https://www.planetebob.fr/wp-content/uploads/2025/07/bob-unique.webp",
+        "https://www.planetebob.fr/wp-content/uploads/2025/07/bob.jpg",
+        "https://www.planetebob.fr/wp-content/uploads/2025/07/bob_1.jpg",
+        "https://www.planetebob.fr/wp-content/uploads/2025/07/bob-unique.jpg",
     ]
     widget2.close()
 
