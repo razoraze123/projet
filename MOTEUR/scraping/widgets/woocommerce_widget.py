@@ -14,6 +14,8 @@ from PySide6.QtCore import Slot
 import csv
 import random
 import string
+import re
+import unicodedata
 
 
 class WooCommerceProductWidget(QWidget):
@@ -41,6 +43,14 @@ class WooCommerceProductWidget(QWidget):
         "Attribute 1 visible",
         "Attribute 1 global",
     ]
+
+    @staticmethod
+    def _slugify(text: str) -> str:
+        text = unicodedata.normalize("NFKD", text)
+        text = text.encode("ascii", "ignore").decode("ascii")
+        text = re.sub(r"[^a-zA-Z0-9\s-]", "", text)
+        text = re.sub(r"[\s_-]+", "-", text).strip("-")
+        return text.lower()
 
     def __init__(self, *, storage_widget=None) -> None:
         super().__init__()
@@ -139,12 +149,33 @@ class WooCommerceProductWidget(QWidget):
         name_col = self.HEADERS.index("Name")
 
         for prod in products:
-            self.add_row()
-            row = self.table.rowCount() - 1
-            type_val = "variable" if len(prod["variants"]) > 1 else "simple"
+            row = self.table.rowCount()
+            self.table.insertRow(row)
+            for col in range(self.table.columnCount()):
+                self.table.setItem(row, col, QTableWidgetItem(""))
+
+            is_variable = len(prod["variants"]) > 1
+            type_val = "variable" if is_variable else "simple"
             sku_val = "SKU-" + "".join(
                 random.choices(string.ascii_uppercase + string.digits, k=8)
             )
+
             self.table.setItem(row, type_col, QTableWidgetItem(type_val))
             self.table.setItem(row, sku_col, QTableWidgetItem(sku_val))
             self.table.setItem(row, name_col, QTableWidgetItem(prod["name"]))
+
+            if is_variable:
+                parent_row = row
+                parent_sku = sku_val
+                parent_name = prod["name"]
+                for variant in prod["variants"]:
+                    parent_row += 1
+                    self.table.insertRow(parent_row)
+                    for c in range(self.table.columnCount()):
+                        self.table.setItem(parent_row, c, QTableWidgetItem(""))
+                    self.table.setItem(parent_row, type_col, QTableWidgetItem("variation"))
+                    var_slug = self._slugify(variant)
+                    sku_var = f"{parent_sku}-{var_slug}"
+                    name_var = f"{parent_name} {variant}"
+                    self.table.setItem(parent_row, sku_col, QTableWidgetItem(sku_var))
+                    self.table.setItem(parent_row, name_col, QTableWidgetItem(name_var))
