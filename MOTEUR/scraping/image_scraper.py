@@ -11,6 +11,7 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.remote.webelement import WebElement
 
 DEFAULT_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -207,6 +208,32 @@ def scrape_variants(driver: webdriver.Chrome) -> dict[str, str]:
     """
 
     mapping: dict[str, str] = {}
+
+    def _img_url(el):
+        return (
+            el.get_attribute("src")
+            or el.get_attribute("data-photoswipe-src")
+            or el.get_attribute("data-src")
+        )
+
+    selectors = [
+        ".woocommerce-product-gallery__image img",
+        ".product-media img",
+        ".product-image img",
+        ".product-gallery img",
+        ".product-main img",
+    ]
+
+    def _find_main_image() -> WebElement | None:
+        for sel in selectors + ["img"]:
+            try:
+                img = driver.find_element(By.CSS_SELECTOR, sel)
+                if img.is_displayed():
+                    return img
+            except Exception:
+                continue
+        return None
+
     try:
         inputs = driver.find_elements(
             By.CSS_SELECTOR, ".variant-picker__option-values input[type='radio']"
@@ -214,9 +241,9 @@ def scrape_variants(driver: webdriver.Chrome) -> dict[str, str]:
         if not inputs:
             return mapping
 
-        main_img = driver.find_element(
-            By.CSS_SELECTOR, ".woocommerce-product-gallery__image img"
-        )
+        main_img = _find_main_image()
+        if main_img is None:
+            return mapping
 
         for inp in inputs:
             value = inp.get_attribute("value") or inp.get_attribute("data-value")
@@ -233,19 +260,18 @@ def scrape_variants(driver: webdriver.Chrome) -> dict[str, str]:
                 except Exception:
                     continue
 
-            previous = main_img.get_attribute("data-photoswipe-src") or main_img.get_attribute("src")
+            previous = _img_url(main_img)
             driver.execute_script("arguments[0].click()", label)
             try:
                 WebDriverWait(driver, 5).until(
-                    lambda d: (
-                        (main_img.get_attribute("data-photoswipe-src") or main_img.get_attribute("src"))
-                        != previous
-                    )
+                    lambda d: (_img_url(_find_main_image()) or "") != (previous or "")
                 )
             except Exception:
                 pass
 
-            url = main_img.get_attribute("data-photoswipe-src") or main_img.get_attribute("src")
+            new_img = _find_main_image() or main_img
+            main_img = new_img
+            url = _img_url(main_img)
             if value and url:
                 mapping[value] = url
     except Exception as exc:
