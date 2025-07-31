@@ -112,3 +112,40 @@ def test_export_csv_delimiter(tmp_path, monkeypatch):
     assert rows[0] == widget.HEADERS
     assert rows[1][name_col] == "bob"
     widget.close()
+
+
+def test_clean_image_urls_option(tmp_path, monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    storage = StorageWidget()
+    storage.add_product("bob", ["Unique"])
+
+    images_root = tmp_path / "images"
+    (images_root / "bob").mkdir(parents=True)
+    (images_root / "bob" / "bob.webp").write_text("x")
+    (images_root / "bob" / "bob_1.webp").write_text("x")
+    (images_root / "bob" / "bob-unique.webp").write_text("x")
+
+    monkeypatch.setattr(WooCommerceProductWidget, "IMAGES_ROOT", images_root)
+
+    # Cleaning enabled (default)
+    widget = WooCommerceProductWidget(storage_widget=storage)
+    widget.fill_from_storage()
+    img_col = widget.HEADERS.index("Images")
+    images = widget.table.item(0, img_col).text().split(", ")
+    assert images == [
+        "https://www.planetebob.fr/wp-content/uploads/2025/07/bob.webp",
+        "https://www.planetebob.fr/wp-content/uploads/2025/07/bob-unique.webp",
+    ]
+    widget.close()
+
+    # Cleaning disabled
+    widget2 = WooCommerceProductWidget(storage_widget=storage)
+    widget2.clean_images_checkbox.setChecked(False)
+    widget2.fill_from_storage()
+    images2 = widget2.table.item(0, img_col).text().split(", ")
+    assert images2 == [
+        "https://www.planetebob.fr/wp-content/uploads/2025/07/bob.webp",
+        "https://www.planetebob.fr/wp-content/uploads/2025/07/bob_1.webp",
+        "https://www.planetebob.fr/wp-content/uploads/2025/07/bob-unique.webp",
+    ]
+    widget2.close()
