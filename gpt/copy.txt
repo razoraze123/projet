@@ -1,4 +1,10 @@
-Ce fichier regroupe le code principal du module de scraping d'images ainsi que ses compléments.
+Ce fichier regroupe tout le code Python relatif au **scraping d'images**.
+Il contient le script principal, le gestionnaire de profils permettant de
+sauvegarder des sélecteurs CSS, le suivi de l'historique des opérations et les
+widgets Qt qui orchestrent ces éléments. Le widget d'interface
+``ImageScraperWidget`` charge les profils via ``profile_manager`` afin de
+déterminer quel sélecteur utiliser et enregistre chaque exécution dans
+``history``.
 
 # image_scraper.py
 import os
@@ -6,6 +12,7 @@ import re
 import time
 from pathlib import Path
 from typing import List, Set
+from urllib.parse import urljoin
 
 import requests
 from selenium import webdriver
@@ -78,6 +85,11 @@ def _extract_urls(driver: webdriver.Chrome, selector: str) -> List[str]:
             or el.get_attribute("src")
             or el.get_attribute("data-src")
         )
+        if src:
+            if src.startswith("//"):
+                src = "https:" + src
+            elif src.startswith("/"):
+                src = urljoin(driver.current_url, src)
         if src and not src.startswith("data:image"):
             urls.add(src)
             continue
@@ -129,7 +141,26 @@ def _download(url: str, folder: Path) -> None:
         f.write(resp.content)
 
 
-def scrape_images(page_url: str, selector: str) -> int:
+def _folder_from_url(url: str) -> Path:
+    """Return a folder name derived from ``url``.
+
+    The last segment of the path is used, hyphens are replaced with spaces and
+    unsafe characters are removed.
+    """
+    from urllib.parse import urlparse, unquote
+
+    path = unquote(urlparse(url).path)
+    name = Path(path).name.replace("-", " ")
+    # keep alphanumeric characters, spaces and underscores only
+    name = re.sub(r"[^\w\s]", "", name).strip()
+    return Path(name or "images")
+
+
+def scrape_images(page_url: str, selector: str, folder: str | Path = "images") -> int:
+    """Download images from ``page_url`` into a subfolder of ``folder``.
+
+    The subfolder name is derived from the URL's last path segment.
+    """
     print("Chargement...")
     driver = _create_driver()
     try:
@@ -150,8 +181,9 @@ def scrape_images(page_url: str, selector: str) -> int:
     finally:
         driver.quit()
 
-    images_dir = Path("images")
-    images_dir.mkdir(exist_ok=True)
+    base_dir = Path(folder)
+    images_dir = base_dir / _folder_from_url(page_url)
+    images_dir.mkdir(parents=True, exist_ok=True)
     for i, url in enumerate(urls, 1):
         print(f"T\u00e9l\u00e9chargement de l'image n\u00b0{i}/{total}")
         _download(url, images_dir)
@@ -319,6 +351,7 @@ from PySide6.QtCore import Qt, Slot
 from PySide6.QtGui import QClipboard
 
 import sys
+from pathlib import Path
 
 
 class _ConsoleStream:
@@ -349,8 +382,14 @@ class ImageScraperWidget(QWidget):
     def __init__(self) -> None:
         super().__init__()
 
-        self.url_edit = QLineEdit()
-        self.url_edit.setPlaceholderText("URL de la page")
+        self.file_edit = QLineEdit()
+        self.file_edit.setPlaceholderText("Fichier texte contenant les URLs")
+        file_btn = QPushButton("Parcourir…")
+        file_btn.clicked.connect(self._choose_file)
+
+        file_layout = QHBoxLayout()
+        file_layout.addWidget(self.file_edit)
+        file_layout.addWidget(file_btn)
 
         self.profile_combo = QComboBox()
         self.profiles: list[dict[str, str]] = []
@@ -383,8 +422,8 @@ class ImageScraperWidget(QWidget):
         self.progress_bar.hide()
 
         layout = QVBoxLayout(self)
-        layout.addWidget(QLabel("URL:"))
-        layout.addWidget(self.url_edit)
+        layout.addWidget(QLabel("Fichier :"))
+        layout.addLayout(file_layout)
         layout.addWidget(QLabel("Profil:"))
         layout.addWidget(self.profile_combo)
         layout.addWidget(QLabel("Dossier:"))
@@ -395,7 +434,7 @@ class ImageScraperWidget(QWidget):
 
         self.refresh_profiles()
         last = history.load_last_used()
-        self.url_edit.setText(last.get("url", ""))
+        self.file_edit.setText(last.get("url", ""))
         self.folder_edit.setText(last.get("folder", ""))
 
     # ------------------------------------------------------------------
@@ -433,6 +472,17 @@ class ImageScraperWidget(QWidget):
             self.folder_edit.setText(path)
 
     @Slot()
+    def _choose_file(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Choisir un fichier",
+            "",
+            "Text Files (*.txt);;All Files (*)",
+        )
+        if path:
+            self.file_edit.setText(path)
+
+    @Slot()
     def _copy_console(self) -> None:
         """Copy the console's contents to the clipboard."""
         text = self.console.toPlainText()
@@ -442,11 +492,27 @@ class ImageScraperWidget(QWidget):
 
     @Slot()
     def _start(self) -> None:
-        url = self.url_edit.text().strip()
+        file_path = self.file_edit.text().strip()
         selector = self.selected_selector.strip()
         folder = self.folder_edit.text().strip() or "images"
-        if not url or not selector:
-            self.console.append("❌ URL ou sélecteur manquant")
+        if not file_path or not selector:
+            self.console.append("❌ Fichier ou sélecteur manquant")
+            return
+
+        path = Path(file_path)
+        if not path.is_file():
+            self.console.append("❌ Fichier introuvable")
+            return
+
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                urls = [line.strip() for line in f if line.strip()]
+        except Exception as exc:
+            self.console.append(f"❌ Erreur à la lecture du fichier: {exc}")
+            return
+
+        if not urls:
+            self.console.append("❌ Aucun URL dans le fichier")
             return
 
         self.start_btn.setEnabled(False)
@@ -457,16 +523,19 @@ class ImageScraperWidget(QWidget):
         old_stdout = sys.stdout
         sys.stdout = stream
         try:
-            total = scrape_images(url, selector)
-        except Exception as exc:
-            self.console.append(f"❌ Erreur: {exc}")
-        else:
-            self.console.append("✅ Terminé")
-            history.log_scrape(url, self.profile_combo.currentText(), total, folder)
+            for url in urls:
+                try:
+                    total = scrape_images(url, selector, folder)
+                except Exception as exc:
+                    self.console.append(f"❌ Erreur sur {url}: {exc}")
+                else:
+                    self.console.append(f"✅ {url} - {total} images")
+                    history.log_scrape(url, self.profile_combo.currentText(), total, folder)
         finally:
             sys.stdout = old_stdout
             self.progress_bar.hide()
             self.start_btn.setEnabled(True)
+
 
 
 # widgets/profile_widget.py
