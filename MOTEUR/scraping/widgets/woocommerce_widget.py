@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QTableWidgetItem,
     QFileDialog,
     QAbstractItemView,
+    QCheckBox,
 )
 from PySide6.QtCore import Slot
 import csv
@@ -59,6 +60,25 @@ class WooCommerceProductWidget(QWidget):
         text = re.sub(r"[\s_-]+", "-", text).strip("-")
         return text.lower()
 
+    @staticmethod
+    def _clean_image_urls(urls: list[str]) -> list[str]:
+        """Remove duplicate image URLs using exact and prefix based checks."""
+        # Remove exact duplicates first
+        unique_urls = list(set(urls))
+
+        prefix_set: set[str] = set()
+        final_images: list[str] = []
+
+        for url in sorted(unique_urls):
+            filename = url.split("/")[-1]
+            prefix = filename.split("_")[0].split("-56cm")[0]
+
+            if prefix not in prefix_set:
+                final_images.append(url)
+                prefix_set.add(prefix)
+
+        return final_images
+
     def __init__(self, *, storage_widget=None) -> None:
         super().__init__()
         self.storage_widget = storage_widget
@@ -86,8 +106,12 @@ class WooCommerceProductWidget(QWidget):
         btn_layout.addWidget(import_btn)
         btn_layout.addWidget(export_btn)
 
+        self.clean_images_checkbox = QCheckBox("Nettoyer les images dupliquées")
+        self.clean_images_checkbox.setChecked(True)
+
         layout = QVBoxLayout(self)
         layout.addLayout(btn_layout)
+        layout.addWidget(self.clean_images_checkbox)
         layout.addWidget(self.table)
 
     # ------------------------------------------------------------------
@@ -199,10 +223,14 @@ class WooCommerceProductWidget(QWidget):
                 parent_images = [
                     self.BASE_IMAGE_URL + img for img in generic_images + variant_files
                 ]
+                if self.clean_images_checkbox.isChecked():
+                    parent_images = self._clean_image_urls(parent_images)
                 if parent_images:
-                    self.table.setItem(row, img_col, QTableWidgetItem(
-                        ", ".join(parent_images)
-                    ))
+                    self.table.setItem(
+                        row,
+                        img_col,
+                        QTableWidgetItem(", ".join(parent_images)),
+                    )
 
                 current_row = row
                 for variant in variants:
@@ -230,9 +258,13 @@ class WooCommerceProductWidget(QWidget):
                 self.table.setItem(row, sku_col, QTableWidgetItem(sku_val))
                 self.table.setItem(row, name_col, QTableWidgetItem(product_name))
                 images = [self.BASE_IMAGE_URL + img for img in generic_images + variant_files]
+                if self.clean_images_checkbox.isChecked():
+                    images = self._clean_image_urls(images)
                 if images:
-                    self.table.setItem(row, img_col, QTableWidgetItem(
-                        ", ".join(images)
-                    ))
+                    self.table.setItem(
+                        row,
+                        img_col,
+                        QTableWidgetItem(", ".join(images)),
+                    )
 
 
