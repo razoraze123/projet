@@ -77,13 +77,27 @@ def _download(url: str, folder: Path) -> None:
     if url.startswith("data:image"):
         print(f"\u26A0\uFE0F Ignoré (image base64) : {url[:50]}...")
         return
+
     try:
         resp = requests.get(url, timeout=10)
         resp.raise_for_status()
+
+        # Vérifie que la réponse est bien une image
+        content_type = resp.headers.get("Content-Type", "")
+        if not content_type.startswith("image/"):
+            print(f"\u274c Mauvais type de contenu pour {url}: {content_type}")
+            return
+
+        # Ignore les contenus vides ou trop petits pour être une image réelle
+        if not resp.content or len(resp.content) < 100:
+            print(f"\u26A0\uFE0F Réponse vide ou suspecte pour {url}")
+            return
+
     except Exception as exc:
         print(f"\u274c Erreur lors du téléchargement de {url}: {exc}")
         return
 
+    # Enregistrement avec gestion de collision de nom
     name = os.path.basename(url.split("?")[0]) or "image"
     path = folder / name
     base, ext = os.path.splitext(path)
