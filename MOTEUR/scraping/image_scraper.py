@@ -132,7 +132,26 @@ def _download(url: str, folder: Path) -> None:
         f.write(resp.content)
 
 
-def scrape_images(page_url: str, selector: str) -> int:
+def _folder_from_url(url: str) -> Path:
+    """Return a folder name derived from ``url``.
+
+    The last segment of the path is used, hyphens are replaced with spaces and
+    unsafe characters are removed.
+    """
+    from urllib.parse import urlparse, unquote
+
+    path = unquote(urlparse(url).path)
+    name = Path(path).name.replace("-", " ")
+    # keep alphanumeric characters, spaces and underscores only
+    name = re.sub(r"[^\w\s]", "", name).strip()
+    return Path(name or "images")
+
+
+def scrape_images(page_url: str, selector: str, folder: str | Path = "images") -> int:
+    """Download images from ``page_url`` into a subfolder of ``folder``.
+
+    The subfolder name is derived from the URL's last path segment.
+    """
     print("Chargement...")
     driver = _create_driver()
     try:
@@ -153,8 +172,9 @@ def scrape_images(page_url: str, selector: str) -> int:
     finally:
         driver.quit()
 
-    images_dir = Path("images")
-    images_dir.mkdir(exist_ok=True)
+    base_dir = Path(folder)
+    images_dir = base_dir / _folder_from_url(page_url)
+    images_dir.mkdir(parents=True, exist_ok=True)
     for i, url in enumerate(urls, 1):
         print(f"T\u00e9l\u00e9chargement de l'image n\u00b0{i}/{total}")
         _download(url, images_dir)

@@ -27,7 +27,10 @@ def test_scrape_logs_history(tmp_path, monkeypatch):
     widget.url_edit.setText("http://example.com")
     widget.folder_edit.setText(str(tmp_path))
 
-    monkeypatch.setattr("MOTEUR.scraping.widgets.image_widget.scrape_images", lambda url, sel: 5)
+    monkeypatch.setattr(
+        "MOTEUR.scraping.widgets.image_widget.scrape_images",
+        lambda url, sel, folder: 5,
+    )
 
     widget._start()
 
