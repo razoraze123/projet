@@ -8,6 +8,8 @@ import requests
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 
 DEFAULT_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -42,6 +44,18 @@ def _scroll_page(driver: webdriver.Chrome, pause: float = 0.5) -> None:
         last_height = driver.execute_script("return document.body.scrollHeight")
 
 
+def _simulate_slider_interaction(driver: webdriver.Chrome) -> None:
+    """Interact with Flickity sliders if present."""
+    try:
+        dots = driver.find_elements(By.CSS_SELECTOR, ".flickity-page-dots .dot")
+        for i, dot in enumerate(dots):
+            driver.execute_script("arguments[0].click();", dot)
+            print(f"\U0001F7E1 Clic sur le point {i+1}/{len(dots)}")
+            time.sleep(1.2)
+    except Exception as e:
+        print(f"\u26A0\uFE0F Aucun slider d\u00e9tect\u00e9 ou erreur : {e}")
+
+
 def _extract_urls(driver: webdriver.Chrome, selector: str) -> List[str]:
     elements = driver.find_elements(By.CSS_SELECTOR, selector)
     urls: Set[str] = set()
@@ -56,8 +70,12 @@ def _extract_urls(driver: webdriver.Chrome, selector: str) -> List[str]:
                 urls.add(href)
                 continue
 
-        # Si c'est une balise <img> ou autre avec src / data-src
-        src = el.get_attribute("src") or el.get_attribute("data-src")
+        # Si c'est une balise <img> ou autre avec data-photoswipe-src / src / data-src
+        src = (
+            el.get_attribute("data-photoswipe-src")
+            or el.get_attribute("src")
+            or el.get_attribute("data-src")
+        )
         if src and not src.startswith("data:image"):
             urls.add(src)
             continue
@@ -114,10 +132,19 @@ def scrape_images(page_url: str, selector: str) -> int:
     driver = _create_driver()
     try:
         driver.get(page_url)
+        WebDriverWait(driver, 15).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, selector))
+        )
+        _simulate_slider_interaction(driver)
         _scroll_page(driver)
         urls = _extract_urls(driver, selector)
         total = len(urls)
-        print(f"{total} images trouv\u00e9es")
+        if total == 0:
+            print(
+                "\u26A0\uFE0F Aucune image trouv\u00e9e. V\u00e9rifie si le slider charge bien dynamiquement."
+            )
+        else:
+            print(f"{total} images trouv\u00e9es")
     finally:
         driver.quit()
 
