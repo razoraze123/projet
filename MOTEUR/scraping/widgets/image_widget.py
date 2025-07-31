@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
     QComboBox,
+    QCheckBox,
     QApplication,
 )
 from PySide6.QtCore import Qt, Slot
@@ -37,7 +38,7 @@ class _ConsoleStream:
 from .. import profile_manager as pm
 from .. import history
 
-from ..image_scraper import scrape_images
+from ..image_scraper import scrape_images, scrape_variants
 
 
 class ImageScraperWidget(QWidget):
@@ -70,6 +71,8 @@ class ImageScraperWidget(QWidget):
         folder_layout.addWidget(self.folder_edit)
         folder_layout.addWidget(browse_btn)
 
+        self.variants_checkbox = QCheckBox("Scraper aussi les variantes")
+
         self.start_btn = QPushButton("Lancer")
         self.start_btn.clicked.connect(self._start)
         self.copy_btn = QPushButton("Copier")
@@ -92,6 +95,7 @@ class ImageScraperWidget(QWidget):
         layout.addWidget(self.profile_combo)
         layout.addWidget(QLabel("Dossier:"))
         layout.addLayout(folder_layout)
+        layout.addWidget(self.variants_checkbox)
         layout.addLayout(buttons_layout)
         layout.addWidget(self.console)
         layout.addWidget(self.progress_bar)
@@ -189,11 +193,21 @@ class ImageScraperWidget(QWidget):
         try:
             for url in urls:
                 try:
-                    total = scrape_images(url, selector, folder)
+                    if self.variants_checkbox.isChecked():
+                        total, driver = scrape_images(
+                            url, selector, folder, keep_driver=True
+                        )
+                        variants = scrape_variants(driver)
+                        driver.quit()
+                    else:
+                        total = scrape_images(url, selector, folder)
+                        variants = {}
                 except Exception as exc:
                     self.console.append(f"❌ Erreur sur {url}: {exc}")
                 else:
                     self.console.append(f"✅ {url} - {total} images")
+                    for name, img in variants.items():
+                        self.console.append(f"  • {name}: {img}")
                     history.log_scrape(url, self.profile_combo.currentText(), total, folder)
         finally:
             sys.stdout = old_stdout
