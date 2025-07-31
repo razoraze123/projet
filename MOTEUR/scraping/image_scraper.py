@@ -150,10 +150,18 @@ def _folder_from_url(url: str) -> Path:
     return Path(name or "images")
 
 
-def scrape_images(page_url: str, selector: str, folder: str | Path = "images") -> int:
+def scrape_images(
+    page_url: str,
+    selector: str,
+    folder: str | Path = "images",
+    *,
+    keep_driver: bool = False,
+) -> int | tuple[int, webdriver.Chrome]:
     """Download images from ``page_url`` into a subfolder of ``folder``.
 
-    The subfolder name is derived from the URL's last path segment.
+    The subfolder name is derived from the URL's last path segment. When
+    ``keep_driver`` is ``True``, the Selenium driver is returned alongside the
+    image count and left open for further processing by the caller.
     """
     print("Chargement...")
     driver = _create_driver()
@@ -173,7 +181,8 @@ def scrape_images(page_url: str, selector: str, folder: str | Path = "images") -
         else:
             print(f"{total} images trouv\u00e9es")
     finally:
-        driver.quit()
+        if not keep_driver:
+            driver.quit()
 
     base_dir = Path(folder)
     images_dir = base_dir / _folder_from_url(page_url)
@@ -182,7 +191,67 @@ def scrape_images(page_url: str, selector: str, folder: str | Path = "images") -
         print(f"T\u00e9l\u00e9chargement de l'image n\u00b0{i}/{total}")
         _download(url, images_dir)
     print("\u2705 Termin\u00e9")
+
+    if keep_driver:
+        return total, driver
     return total
+
+
+def scrape_variants(driver: webdriver.Chrome) -> dict[str, str]:
+    """Extract product variant names and associated image URLs using ``driver``.
+
+    ``driver`` must already be on the product page. Each variant input is
+    expected inside the ``.variant-picker__option-values`` container.  The
+    function clicks on each corresponding label, waits for the main product
+    image to update and collects the resulting URL.
+    """
+
+    mapping: dict[str, str] = {}
+    try:
+        inputs = driver.find_elements(
+            By.CSS_SELECTOR, ".variant-picker__option-values input[type='radio']"
+        )
+        if not inputs:
+            return mapping
+
+        main_img = driver.find_element(
+            By.CSS_SELECTOR, ".woocommerce-product-gallery__image img"
+        )
+
+        for inp in inputs:
+            value = inp.get_attribute("value") or inp.get_attribute("data-value")
+            input_id = inp.get_attribute("id")
+            label = None
+            if input_id:
+                try:
+                    label = driver.find_element(By.CSS_SELECTOR, f"label[for='{input_id}']")
+                except Exception:
+                    label = None
+            if label is None:
+                try:
+                    label = inp.find_element(By.XPATH, "following-sibling::label[1]")
+                except Exception:
+                    continue
+
+            previous = main_img.get_attribute("data-photoswipe-src") or main_img.get_attribute("src")
+            driver.execute_script("arguments[0].click()", label)
+            try:
+                WebDriverWait(driver, 5).until(
+                    lambda d: (
+                        (main_img.get_attribute("data-photoswipe-src") or main_img.get_attribute("src"))
+                        != previous
+                    )
+                )
+            except Exception:
+                pass
+
+            url = main_img.get_attribute("data-photoswipe-src") or main_img.get_attribute("src")
+            if value and url:
+                mapping[value] = url
+    except Exception as exc:
+        print(f"⚠️ Erreur lors du scraping des variantes: {exc}")
+
+    return mapping
 
 
 if __name__ == "__main__":
