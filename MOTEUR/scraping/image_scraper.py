@@ -3,7 +3,8 @@ import re
 import time
 from pathlib import Path
 from typing import List, Set
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse, unquote
+import unicodedata
 
 import requests
 from selenium import webdriver
@@ -209,6 +210,17 @@ def scrape_variants(driver: webdriver.Chrome) -> dict[str, str]:
 
     mapping: dict[str, str] = {}
 
+    def _slugify(text: str) -> str:
+        text = unicodedata.normalize('NFKD', text)
+        text = text.encode('ascii', 'ignore').decode('ascii')
+        text = re.sub(r"[^a-zA-Z0-9\s-]", "", text)
+        text = re.sub(r"[\s_-]+", "-", text).strip("-")
+        return text.lower()
+
+    product_path = unquote(urlparse(driver.current_url).path).rstrip("/")
+    product_name = Path(product_path).name
+    product_slug = _slugify(product_name)
+
     def _img_url(el):
         return (
             el.get_attribute("src")
@@ -271,8 +283,12 @@ def scrape_variants(driver: webdriver.Chrome) -> dict[str, str]:
 
             new_img = _find_main_image() or main_img
             main_img = new_img
-            url = _img_url(main_img)
-            if value and url:
+            if value:
+                variant_slug = _slugify(value)
+                url = (
+                    f"https://www.planetebob.fr/wp-content/uploads/2025/07/"
+                    f"{product_slug}-{variant_slug}.jpg"
+                )
                 mapping[value] = url
     except Exception as exc:
         print(f"⚠️ Erreur lors du scraping des variantes: {exc}")
