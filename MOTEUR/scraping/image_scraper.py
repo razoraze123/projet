@@ -122,6 +122,9 @@ def _download(url: str, folder: Path) -> None:
 
     # Enregistrement avec gestion de collision de nom
     name = os.path.basename(url.split("?")[0]) or "image"
+    stem, ext = os.path.splitext(name)
+    stem = re.sub(r"-\d+$", "", stem)
+    name = f"{stem}{ext}"
     path = folder / name
     base, ext = os.path.splitext(path)
     idx = 1
