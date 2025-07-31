@@ -16,6 +16,7 @@ import random
 import string
 import re
 import unicodedata
+from pathlib import Path
 
 
 class WooCommerceProductWidget(QWidget):
@@ -43,6 +44,12 @@ class WooCommerceProductWidget(QWidget):
         "Attribute 1 visible",
         "Attribute 1 global",
     ]
+
+    # Folder containing downloaded product images. Tests monkeypatch this path.
+    IMAGES_ROOT = Path("images")
+
+    # Base URL for uploaded WooCommerce images.
+    BASE_IMAGE_URL = "https://www.planetebob.fr/wp-content/uploads/2025/07/"
 
     @staticmethod
     def _slugify(text: str) -> str:
@@ -147,35 +154,85 @@ class WooCommerceProductWidget(QWidget):
         type_col = self.HEADERS.index("Type")
         sku_col = self.HEADERS.index("SKU")
         name_col = self.HEADERS.index("Name")
+        img_col = self.HEADERS.index("Images")
+
+        used_skus: set[str] = set()
+
+        def _gen_sku() -> str:
+            """Generate a unique random SKU."""
+            while True:
+                sku = "SKU-" + "".join(
+                    random.choices(string.ascii_uppercase + string.digits, k=8)
+                )
+                if sku not in used_skus:
+                    used_skus.add(sku)
+                    return sku
 
         for prod in products:
-            row = self.table.rowCount()
-            self.table.insertRow(row)
-            for col in range(self.table.columnCount()):
-                self.table.setItem(row, col, QTableWidgetItem(""))
+            product_name = prod["name"]
+            variants = prod["variants"]
+            product_slug = self._slugify(product_name)
+            folder = self.IMAGES_ROOT / product_name
+            local_images: list[str] = []
+            if folder.is_dir():
+                for p in sorted(folder.iterdir()):
+                    if p.suffix.lower() in {".webp", ".jpg", ".jpeg", ".png"}:
+                        local_images.append(p.name)
 
-            is_variable = len(prod["variants"]) > 1
-            type_val = "variable" if is_variable else "simple"
-            sku_val = "SKU-" + "".join(
-                random.choices(string.ascii_uppercase + string.digits, k=8)
-            )
+            variant_files = [
+                f"{product_slug}-{self._slugify(v)}.webp" for v in variants
+            ]
+            generic_images = [img for img in local_images if img not in variant_files]
 
-            self.table.setItem(row, type_col, QTableWidgetItem(type_val))
-            self.table.setItem(row, sku_col, QTableWidgetItem(sku_val))
-            self.table.setItem(row, name_col, QTableWidgetItem(prod["name"]))
+            is_variable = len(variants) > 1
 
             if is_variable:
-                parent_row = row
-                parent_sku = sku_val
-                parent_name = prod["name"]
-                for variant in prod["variants"]:
-                    parent_row += 1
-                    self.table.insertRow(parent_row)
+                row = self.table.rowCount()
+                self.table.insertRow(row)
+                for col in range(self.table.columnCount()):
+                    self.table.setItem(row, col, QTableWidgetItem(""))
+
+                parent_sku = _gen_sku()
+                self.table.setItem(row, type_col, QTableWidgetItem("variable"))
+                self.table.setItem(row, sku_col, QTableWidgetItem(parent_sku))
+                self.table.setItem(row, name_col, QTableWidgetItem(product_name))
+                parent_images = [
+                    self.BASE_IMAGE_URL + img for img in generic_images + variant_files
+                ]
+                if parent_images:
+                    self.table.setItem(row, img_col, QTableWidgetItem(
+                        ", ".join(parent_images)
+                    ))
+
+                current_row = row
+                for variant in variants:
+                    current_row += 1
+                    self.table.insertRow(current_row)
                     for c in range(self.table.columnCount()):
-                        self.table.setItem(parent_row, c, QTableWidgetItem(""))
-                    self.table.setItem(parent_row, type_col, QTableWidgetItem("variation"))
+                        self.table.setItem(current_row, c, QTableWidgetItem(""))
+                    self.table.setItem(current_row, type_col, QTableWidgetItem("variation"))
                     var_slug = self._slugify(variant)
                     sku_var = f"{parent_sku}-{var_slug}"
-                    name_var = f"{parent_name} {variant}"
-                    self.table.setItem(parent_row, sku_col, QTableWidgetItem(sku_var))
-                    self.table.setItem(parent_row, name_col, QTableWidgetItem(name_var))
+                    used_skus.add(sku_var)
+                    name_var = f"{product_name} {variant}"
+                    self.table.setItem(current_row, sku_col, QTableWidgetItem(sku_var))
+                    self.table.setItem(current_row, name_col, QTableWidgetItem(name_var))
+                    var_img = self.BASE_IMAGE_URL + f"{product_slug}-{var_slug}.webp"
+                    self.table.setItem(current_row, img_col, QTableWidgetItem(var_img))
+            else:
+                row = self.table.rowCount()
+                self.table.insertRow(row)
+                for col in range(self.table.columnCount()):
+                    self.table.setItem(row, col, QTableWidgetItem(""))
+
+                sku_val = _gen_sku()
+                self.table.setItem(row, type_col, QTableWidgetItem("simple"))
+                self.table.setItem(row, sku_col, QTableWidgetItem(sku_val))
+                self.table.setItem(row, name_col, QTableWidgetItem(product_name))
+                images = [self.BASE_IMAGE_URL + img for img in generic_images + variant_files]
+                if images:
+                    self.table.setItem(row, img_col, QTableWidgetItem(
+                        ", ".join(images)
+                    ))
+
+
