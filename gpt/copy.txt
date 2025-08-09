@@ -448,6 +448,18 @@ def load_last_used() -> Dict[str, str]:
         pass
     return {"url": "", "folder": ""}
 
+# bus/event_bus.py
+from PySide6.QtCore import QObject, Signal
+
+
+class EventBus(QObject):
+    profiles_changed = Signal()
+    history_changed = Signal()
+
+
+# singleton
+bus = EventBus()
+
 # widgets/profile_widget.py
 from PySide6.QtWidgets import (
     QWidget,
@@ -458,9 +470,10 @@ from PySide6.QtWidgets import (
     QPushButton,
     QLabel,
 )
-from PySide6.QtCore import Signal, Slot
+from PySide6.QtCore import Signal, Slot, QTimer
 
 from .. import profile_manager as pm
+from ..bus.event_bus import bus
 
 
 class ProfileWidget(QWidget):
@@ -506,6 +519,17 @@ class ProfileWidget(QWidget):
         layout.addLayout(btn_layout)
 
         self._load_profiles()
+
+        # watch for external profile changes
+        bus.profiles_changed.connect(self._load_profiles)
+
+        self._mtime = (
+            pm.PROFILES_FILE.stat().st_mtime if pm.PROFILES_FILE.exists() else 0
+        )
+        self._timer = QTimer(self)
+        self._timer.setInterval(2500)
+        self._timer.timeout.connect(self._check_profiles_file)
+        self._timer.start()
 
     # ------------------------------------------------------------------
     def _load_profiles(self) -> None:
@@ -559,6 +583,17 @@ class ProfileWidget(QWidget):
         if pm.delete_profile(name):
             self._load_profiles()
             self.profiles_updated.emit()
+
+    # ------------------------------------------------------------------
+    def _check_profiles_file(self) -> None:
+        p = pm.PROFILES_FILE
+        try:
+            m = p.stat().st_mtime
+            if m != self._mtime:
+                self._mtime = m
+                self._load_profiles()
+        except Exception:
+            pass
 
 
 # widgets/image_widget.py
@@ -1658,7 +1693,45 @@ class FlaskBridgeServer:
                 {"name": p.get("name", ""), "selector": p.get("selector", "")}
                 for p in profs
             ]
-            return jsonify(out)
+            out.sort(key=lambda p: p["name"])
+            return jsonify(out), 200
+
+        @app.post("/profiles")
+        def add_profile_route() -> Any:
+            auth = require_key()
+            if auth:
+                return auth
+            data = request.get_json(force=True, silent=True) or {}
+            name = (data.get("name") or "").strip()
+            selector = (data.get("selector") or "").strip()
+            if not name or not selector:
+                return (
+                    jsonify(
+                        {
+                            "error": "invalid_request",
+                            "detail": "name and selector required",
+                        }
+                    ),
+                    400,
+                )
+            try:
+                from .. import profile_manager as pm
+
+                pm.add_profile(name, selector)
+            except ValueError:
+                return jsonify({"error": "exists"}), 409
+
+            try:
+                from PySide6.QtCore import QMetaObject, Qt
+                from ..bus.event_bus import bus
+
+                QMetaObject.invokeMethod(bus, "profiles_changed", Qt.QueuedConnection)
+            except Exception as e:  # pragma: no cover - best effort
+                log.warning("Impossible d'émettre profiles_changed: %s", e)
+
+            self._log(f"Profil '{name}' ajouté")
+            log.info("Profil ajouté: %s -> %s", name, selector)
+            return jsonify({"name": name, "selector": selector}), 201
 
         @app.get("/history")
         def hist() -> Any:
@@ -1666,6 +1739,20 @@ class FlaskBridgeServer:
             if auth:
                 return auth
             return jsonify(load_history())
+
+        @app.get("/debug/ping")
+        def debug_ping() -> Any:
+            auth = require_key()
+            if auth:
+                return auth
+            from PySide6.QtCore import QCoreApplication
+
+            return jsonify(
+                {
+                    "thread": "flask",
+                    "qt_alive": QCoreApplication.instance() is not None,
+                }
+            )
 
     # ------------------------------------------------------------------
     # job execution
