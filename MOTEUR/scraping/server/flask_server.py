@@ -177,7 +177,45 @@ class FlaskBridgeServer:
                 {"name": p.get("name", ""), "selector": p.get("selector", "")}
                 for p in profs
             ]
-            return jsonify(out)
+            out.sort(key=lambda p: p["name"])
+            return jsonify(out), 200
+
+        @app.post("/profiles")
+        def add_profile_route() -> Any:
+            auth = require_key()
+            if auth:
+                return auth
+            data = request.get_json(force=True, silent=True) or {}
+            name = (data.get("name") or "").strip()
+            selector = (data.get("selector") or "").strip()
+            if not name or not selector:
+                return (
+                    jsonify(
+                        {
+                            "error": "invalid_request",
+                            "detail": "name and selector required",
+                        }
+                    ),
+                    400,
+                )
+            try:
+                from .. import profile_manager as pm
+
+                pm.add_profile(name, selector)
+            except ValueError:
+                return jsonify({"error": "exists"}), 409
+
+            try:
+                from PySide6.QtCore import QMetaObject, Qt
+                from ..bus.event_bus import bus
+
+                QMetaObject.invokeMethod(bus, "profiles_changed", Qt.QueuedConnection)
+            except Exception as e:  # pragma: no cover - best effort
+                log.warning("Impossible d'émettre profiles_changed: %s", e)
+
+            self._log(f"Profil '{name}' ajouté")
+            log.info("Profil ajouté: %s -> %s", name, selector)
+            return jsonify({"name": name, "selector": selector}), 201
 
         @app.get("/history")
         def hist() -> Any:
@@ -185,6 +223,20 @@ class FlaskBridgeServer:
             if auth:
                 return auth
             return jsonify(load_history())
+
+        @app.get("/debug/ping")
+        def debug_ping() -> Any:
+            auth = require_key()
+            if auth:
+                return auth
+            from PySide6.QtCore import QCoreApplication
+
+            return jsonify(
+                {
+                    "thread": "flask",
+                    "qt_alive": QCoreApplication.instance() is not None,
+                }
+            )
 
     # ------------------------------------------------------------------
     # job execution
