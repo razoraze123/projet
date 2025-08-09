@@ -7,9 +7,10 @@ from PySide6.QtWidgets import (
     QPushButton,
     QLabel,
 )
-from PySide6.QtCore import Signal, Slot
+from PySide6.QtCore import Signal, Slot, QTimer
 
 from .. import profile_manager as pm
+from ..bus.event_bus import bus
 
 
 class ProfileWidget(QWidget):
@@ -55,6 +56,15 @@ class ProfileWidget(QWidget):
         layout.addLayout(btn_layout)
 
         self._load_profiles()
+
+        # watch for external profile changes
+        bus.profiles_changed.connect(self._load_profiles)
+
+        self._mtime = pm.PROFILES_FILE.stat().st_mtime if pm.PROFILES_FILE.exists() else 0
+        self._timer = QTimer(self)
+        self._timer.setInterval(2500)
+        self._timer.timeout.connect(self._check_profiles_file)
+        self._timer.start()
 
     # ------------------------------------------------------------------
     def _load_profiles(self) -> None:
@@ -108,4 +118,15 @@ class ProfileWidget(QWidget):
         if pm.delete_profile(name):
             self._load_profiles()
             self.profiles_updated.emit()
+
+    # ------------------------------------------------------------------
+    def _check_profiles_file(self) -> None:
+        p = pm.PROFILES_FILE
+        try:
+            m = p.stat().st_mtime
+            if m != self._mtime:
+                self._mtime = m
+                self._load_profiles()
+        except Exception:
+            pass
 
