@@ -1718,26 +1718,34 @@ from PySide6.QtWidgets import QWidget, QVBoxLayout, QPushButton, QMessageBox
 from PySide6.QtCore import Signal, Slot, QCoreApplication
 from PySide6.QtWidgets import QApplication
 
-from .flask_server_widget import FlaskServerWidget  # pour introspection douce
+from .flask_server_widget import FlaskServerWidget  # introspection douce
 from ..utils.restart import relaunch_current_process
 
+
 class ScrapingSettingsWidget(QWidget):
+    """
+    Onglet Paramètres scraping (sans maintenance par défaut).
+    Passer show_maintenance=True pour réactiver les boutons localement si besoin.
+    """
     module_toggled = Signal(str, bool)
     rename_toggled = Signal(bool)
 
-    def __init__(self, modules_order=None):
+    def __init__(self, modules_order=None, *, show_maintenance: bool = False):
         super().__init__()
         layout = QVBoxLayout(self)
 
-        self.btn_update = QPushButton("Mettre à jour depuis GitHub")
-        self.btn_restart = QPushButton("Redémarrer l’application")
+        self._show_maintenance = bool(show_maintenance)
+        self.btn_update = None
+        self.btn_restart = None
 
-        layout.addWidget(self.btn_update)
-        layout.addWidget(self.btn_restart)
+        if self._show_maintenance:
+            self.btn_update = QPushButton("Mettre à jour depuis GitHub")
+            self.btn_restart = QPushButton("Redémarrer l’application")
+            layout.addWidget(self.btn_update)
+            layout.addWidget(self.btn_restart)
+            self.btn_restart.clicked.connect(self._on_restart_clicked)
+
         layout.addStretch(1)
-
-        self.btn_restart.clicked.connect(self._on_restart_clicked)
-        # NOTE: btn_update reste inchangé ici (placeholder)
 
     # ------------------------------------------------------------------
     def _find_flask_widgets(self) -> list[FlaskServerWidget]:
