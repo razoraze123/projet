@@ -4,28 +4,38 @@ import sys
 import subprocess
 import time
 
+def _build_relaunch_argv() -> list[str]:
+    py = sys.executable or "python"
+    # Cas PyInstaller / frozen
+    if getattr(sys, "frozen", False):
+        return [py] + sys.argv[1:]
+    # Script direct
+    script = os.path.abspath(sys.argv[0]) if sys.argv and sys.argv[0] else ""
+    if script and script.lower().endswith((".py", ".pyw")):
+        return [py, script] + sys.argv[1:]
+    # Fallback (ex: python -m package)
+    return [py] + sys.argv[1:]
 
-def relaunch_current_process(delay_sec: float = 0.2) -> None:
-    """
-    Relance ce programme avec les mêmes arguments, puis rend la main.
-    Ne quitte PAS le process courant (laisse l'appelant le faire).
-    """
-    python = sys.executable
-    script = os.path.abspath(sys.argv[0])
-    argv = [python, script] + sys.argv[1:]
+def relaunch_current_process(delay_sec: float = 0.25, *, cwd: str | None = None) -> None:
+    argv = _build_relaunch_argv()
     try:
-        creationflags = 0
-        # Évite une console parasite sur Windows
+        print(f"[restart] sys.executable = {sys.executable}")
+        print(f"[restart] sys.argv       = {sys.argv}")
+        print(f"[restart] relaunch argv  = {argv}")
+        if cwd is None:
+            cwd = os.getcwd()
+        print(f"[restart] cwd            = {cwd}")
+
+        popen_kwargs = dict(
+            cwd=cwd,
+            close_fds=(os.name != "nt"),
+            start_new_session=(os.name != "nt"),
+        )
         if os.name == "nt":
             CREATE_NEW_PROCESS_GROUP = 0x00000200
             DETACHED_PROCESS = 0x00000008
-            creationflags = DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
-        subprocess.Popen(
-            argv,
-            close_fds=(os.name != "nt"),
-            creationflags=creationflags or 0
-        )
+            popen_kwargs["creationflags"] = DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+        subprocess.Popen(argv, **popen_kwargs)
     except Exception as e:
         print(f"[restart] Erreur au relancement: {e}")
-    # petit délai pour laisser le temps à la nouvelle instance de démarrer
     time.sleep(delay_sec)

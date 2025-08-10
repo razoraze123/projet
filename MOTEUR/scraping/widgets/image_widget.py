@@ -54,6 +54,8 @@ class ImageScraperWidget(QWidget):
         self.export_data: list[dict[str, str]] = []
 
         self.file_edit = QLineEdit()
+        # ✅ Alias de compatibilité pour l'ancien code
+        self.url_edit = self.file_edit
         self.file_edit.setPlaceholderText("Fichier texte contenant les URLs")
         file_btn = QPushButton("Parcourir…")
         file_btn.clicked.connect(self._choose_file)
