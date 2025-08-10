@@ -3581,3 +3581,60 @@ def test_fill_multiple_times_no_duplicates(tmp_path, monkeypatch):
     storage.close()
 ```
 
+=== MOTEUR/scraping/widgets/image_widget.py ===
+ + (L59) self.url_edit = self.file_edit
+
+=== MOTEUR/scraping/utils/restart.py ===
+(new file content pasted below)
+from __future__ import annotations
+import os
+import sys
+import subprocess
+import time
+
+def _build_relaunch_argv() -> list[str]:
+    py = sys.executable or "python"
+    # Cas PyInstaller / frozen
+    if getattr(sys, "frozen", False):
+        return [py] + sys.argv[1:]
+    # Script direct
+    script = os.path.abspath(sys.argv[0]) if sys.argv and sys.argv[0] else ""
+    if script and script.lower().endswith((".py", ".pyw")):
+        return [py, script] + sys.argv[1:]
+    # Fallback (ex: python -m package)
+    return [py] + sys.argv[1:]
+
+def relaunch_current_process(delay_sec: float = 0.25, *, cwd: str | None = None) -> None:
+    argv = _build_relaunch_argv()
+    try:
+        print(f"[restart] sys.executable = {sys.executable}")
+        print(f"[restart] sys.argv       = {sys.argv}")
+        print(f"[restart] relaunch argv  = {argv}")
+        if cwd is None:
+            cwd = os.getcwd()
+        print(f"[restart] cwd            = {cwd}")
+
+        popen_kwargs = dict(
+            cwd=cwd,
+            close_fds=(os.name != "nt"),
+            start_new_session=(os.name != "nt"),
+        )
+        if os.name == "nt":
+            CREATE_NEW_PROCESS_GROUP = 0x00000200
+            DETACHED_PROCESS = 0x00000008
+            popen_kwargs["creationflags"] = DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+        subprocess.Popen(argv, **popen_kwargs)
+    except Exception as e:
+        print(f"[restart] Erreur au relancement: {e}")
+    time.sleep(delay_sec)
+
+=== MOTEUR/scraping/widgets/settings_widget.py ===
+ + constructor signature: def __init__(..., show_maintenance: bool = False)
+ + added maintenance buttons block (if show_maintenance)
+ + _on_restart_clicked() calling relaunch_current_process() then QCoreApplication.quit()
+
+=== MOTEUR/scraping/widgets/woocommerce_widget.py ===
+ + fix _clean_image_urls to remove extension before prefix
+ + set variant image cell inside the for-loop
+ + preserve original order when removing duplicate image URLs
+

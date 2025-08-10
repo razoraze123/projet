@@ -20,7 +20,6 @@ try:
         QLabel,
         QStackedWidget,
         QSizePolicy,
-        QMessageBox,
         QFrame,
         QScrollArea,
     )
@@ -37,8 +36,6 @@ from MOTEUR.compta.ventes.widget import VenteWidget
 from MOTEUR.compta.accounting.widget import AccountWidget
 from MOTEUR.scraping.widgets.profile_widget import ProfileWidget
 from MOTEUR.compta.dashboard.widget import DashboardWidget
-from MOTEUR.scraping.utils.restart import relaunch_current_process
-import subprocess
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -403,25 +400,7 @@ class MainWindow(QMainWindow):
         self.ventes_page = VenteWidget()
         self.stack.addWidget(self.ventes_page)
 
-        self.settings_page = QWidget()
-        settings_layout = QVBoxLayout(self.settings_page)
-        title_label = QLabel(
-            "Paramètres \u2013 Maintenance du projet"
-        )
-        title_label.setAlignment(Qt.AlignCenter)
-        update_button = QPushButton(
-            "\ud83d\udd04 Mettre \u00e0 jour depuis GitHub"
-        )
-        update_button.clicked.connect(self.update_from_github)
-        refresh_button = QPushButton(
-            "\ud83d\udd04 Redémarrer l'application"
-        )
-        refresh_button.clicked.connect(self.refresh_scraping)
-        settings_layout.addStretch()
-        settings_layout.addWidget(title_label)
-        settings_layout.addWidget(update_button, alignment=Qt.AlignCenter)
-        settings_layout.addWidget(refresh_button, alignment=Qt.AlignCenter)
-        settings_layout.addStretch()
+        self.settings_page = ScrapingSettingsWidget(show_maintenance=True)
         self.stack.addWidget(self.settings_page)
 
         main_layout.addWidget(sidebar_container, 1)
@@ -516,52 +495,6 @@ class MainWindow(QMainWindow):
         self.settings_btn.setChecked(True)
         self.stack.setCurrentWidget(self.settings_page)
 
-    def update_from_github(self) -> None:
-        result = subprocess.run(
-            ["git", "pull", "origin", "main"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
-
-        if result.returncode != 0:
-            QMessageBox.critical(
-                self,
-                "Mise à jour",
-                f"❌ Échec de mise à jour\n{result.stderr}",
-            )
-            return
-
-        logs = result.stdout.strip()
-        if "Already up to date" in logs or "Already up-to-date" in logs:
-            QMessageBox.information(self, "Mise à jour", logs)
-            return
-
-        QMessageBox.information(
-            self,
-            "Mise à jour",
-            f"✅ Mise à jour appliquée:\n{logs}\n\nL'application va redémarrer",
-        )
-        relaunch_current_process()
-        QApplication.quit()
-
-    @Slot()
-    def refresh_scraping(self) -> None:
-        page = self.scrap_page.images_widget
-        page.start_btn.setEnabled(True)
-        page.console.clear()
-        page.progress_bar.setValue(0)
-        page.progress_bar.hide()
-        page.url_edit.clear()
-        page.folder_edit.clear()
-
-        QMessageBox.information(
-            self,
-            "Redémarrage",
-            "L'application va redémarrer pour appliquer les changements.",
-        )
-        relaunch_current_process()
-        QApplication.quit()
 
 
 if __name__ == "__main__":

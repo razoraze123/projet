@@ -64,15 +64,18 @@ class WooCommerceProductWidget(QWidget):
     @staticmethod
     def _clean_image_urls(urls: list[str]) -> list[str]:
         """Remove duplicate image URLs using exact and prefix based checks."""
-        # Remove exact duplicates first
-        unique_urls = list(set(urls))
+        unique_urls: list[str] = []
+        for url in urls:
+            if url not in unique_urls:
+                unique_urls.append(url)
 
         prefix_set: set[str] = set()
         final_images: list[str] = []
 
-        for url in sorted(unique_urls):
+        for url in unique_urls:
             filename = url.split("/")[-1]
-            prefix = filename.split("_")[0].split("-56cm")[0]
+            base = filename.rsplit(".", 1)[0]
+            prefix = base.split("_")[0].split("-56cm")[0]
 
             if prefix not in prefix_set:
                 final_images.append(url)
@@ -284,7 +287,7 @@ class WooCommerceProductWidget(QWidget):
                     self.table.setItem(current_row, sku_col, QTableWidgetItem(sku_var))
                     self.table.setItem(current_row, name_col, QTableWidgetItem(name_var))
                     var_img = self.BASE_IMAGE_URL + f"{product_slug}-{var_slug}.jpg"
-                self.table.setItem(current_row, img_col, QTableWidgetItem(var_img))
+                    self.table.setItem(current_row, img_col, QTableWidgetItem(var_img))
             else:
                 row = self.table.rowCount()
                 self.table.insertRow(row)
