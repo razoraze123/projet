@@ -11,7 +11,8 @@ def relaunch_current_process(delay_sec: float = 0.2) -> None:
     Ne quitte PAS le process courant (laisse l'appelant le faire).
     """
     python = sys.executable
-    argv = [python] + sys.argv
+    script = os.path.abspath(sys.argv[0])
+    argv = [python, script] + sys.argv[1:]
     try:
         creationflags = 0
         # Évite une console parasite sur Windows
