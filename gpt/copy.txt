@@ -1,3 +1,4 @@
+Dernière mise à jour : 10 août 2025.
 Ce fichier regroupe tout le code Python relatif au **scraping d'images** et à l'intégration **WooCommerce**.
 Il contient le script principal, le gestionnaire de profils pour sauvegarder des sélecteurs CSS,
 le suivi de l'historique des opérations et les widgets Qt qui orchestrent ces éléments :
