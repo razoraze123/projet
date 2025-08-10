@@ -1,14 +1,228 @@
-Dernière mise à jour : 10 août 2025.
-Ce fichier regroupe tout le code Python relatif au **scraping d'images** et à l'intégration **WooCommerce**.
-Il contient le script principal, le gestionnaire de profils pour sauvegarder des sélecteurs CSS,
-le suivi de l'historique des opérations et les widgets Qt qui orchestrent ces éléments :
-- interface de scraping et gestion des profils,
-- stockage temporaire des produits,
-- génération de fiches produits WooCommerce,
-- serveur Flask pour déclencher à distance les opérations.
-Le widget d'interface ``ImageScraperWidget`` charge les profils via ``profile_manager`` afin de déterminer quel sélecteur utiliser et enregistre chaque exécution dans ``history``.
+# .gitignore
+Description: Source code for .gitignore
+```
+__pycache__/
+*.pyc
+images/
+```
 
-# image_scraper.py
+# MOTEUR/__init__.py
+Description: Source code for MOTEUR/__init__.py
+```python
+
+```
+
+# MOTEUR/compta/__init__.py
+Description: Source code for MOTEUR/compta/__init__.py
+```python
+
+```
+
+# MOTEUR/compta/accounting/__init__.py
+Description: Source code for MOTEUR/compta/accounting/__init__.py
+```python
+
+```
+
+# MOTEUR/compta/accounting/widget.py
+Description: Source code for MOTEUR/compta/accounting/widget.py
+```python
+from PySide6.QtWidgets import QWidget
+from PySide6.QtCore import Signal
+
+
+class AccountWidget(QWidget):
+    accounts_updated = Signal()
+```
+
+# MOTEUR/compta/achats/__init__.py
+Description: Source code for MOTEUR/compta/achats/__init__.py
+```python
+
+```
+
+# MOTEUR/compta/achats/widget.py
+Description: Source code for MOTEUR/compta/achats/widget.py
+```python
+from PySide6.QtWidgets import QWidget
+
+
+class AchatWidget(QWidget):
+    def refresh_accounts(self) -> None:
+        pass
+```
+
+# MOTEUR/compta/dashboard/__init__.py
+Description: Source code for MOTEUR/compta/dashboard/__init__.py
+```python
+
+```
+
+# MOTEUR/compta/dashboard/widget.py
+Description: Source code for MOTEUR/compta/dashboard/widget.py
+```python
+from PySide6.QtWidgets import QWidget, QLabel, QVBoxLayout
+from PySide6.QtCore import Signal
+
+
+class DashboardWidget(QWidget):
+    journal_requested = Signal()
+    grand_livre_requested = Signal()
+    scraping_summary_requested = Signal()
+
+    def __init__(self) -> None:
+        super().__init__()
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel("Dashboard"))
+
+    def refresh(self) -> None:
+        pass
+```
+
+# MOTEUR/compta/parameters.py
+Description: Source code for MOTEUR/compta/parameters.py
+```python
+from PySide6.QtWidgets import QWidget
+
+
+class JournalsWidget(QWidget):
+    pass
+```
+
+# MOTEUR/compta/revision.py
+Description: Source code for MOTEUR/compta/revision.py
+```python
+from PySide6.QtWidgets import QWidget
+
+
+class RevisionTab(QWidget):
+    pass
+```
+
+# MOTEUR/compta/suppliers.py
+Description: Source code for MOTEUR/compta/suppliers.py
+```python
+from PySide6.QtWidgets import QWidget
+
+
+class SupplierTab(QWidget):
+    pass
+```
+
+# MOTEUR/compta/ventes/__init__.py
+Description: Source code for MOTEUR/compta/ventes/__init__.py
+```python
+
+```
+
+# MOTEUR/compta/ventes/widget.py
+Description: Source code for MOTEUR/compta/ventes/widget.py
+```python
+from PySide6.QtWidgets import QWidget
+
+
+class VenteWidget(QWidget):
+    pass
+```
+
+# MOTEUR/scraping/__init__.py
+Description: Source code for MOTEUR/scraping/__init__.py
+```python
+
+```
+
+# MOTEUR/scraping/bus/__init__.py
+Description: Source code for MOTEUR/scraping/bus/__init__.py
+```python
+
+```
+
+# MOTEUR/scraping/bus/event_bus.py
+Description: Source code for MOTEUR/scraping/bus/event_bus.py
+```python
+from PySide6.QtCore import QObject, Signal
+
+
+class EventBus(QObject):
+    profiles_changed = Signal()
+    history_changed = Signal()
+
+
+# singleton
+bus = EventBus()
+```
+
+# MOTEUR/scraping/history.py
+Description: Source code for MOTEUR/scraping/history.py
+```python
+import json
+from pathlib import Path
+from datetime import datetime
+from typing import List, Dict
+
+# Path to the history log file at project root
+HISTORY_FILE = Path(__file__).resolve().parents[2] / "scraping_history.json"
+
+# Path to file storing last used url/folder
+LAST_USED_FILE = Path(__file__).resolve().parents[2] / "scraping_last_used.json"
+
+
+def _read_json(path: Path) -> List[Dict]:
+    if not path.exists():
+        return []
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f) or []
+    except Exception:
+        return []
+
+
+def _write_json(path: Path, data) -> None:
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+
+
+def log_scrape(url: str, profile: str, images: int, folder: str) -> None:
+    """Append a scraping entry to :data:`HISTORY_FILE`."""
+    entries = _read_json(HISTORY_FILE)
+    entries.append(
+        {
+            "date": datetime.now().isoformat(timespec="seconds"),
+            "url": url,
+            "profile": profile,
+            "images": images,
+            "folder": folder,
+        }
+    )
+    _write_json(HISTORY_FILE, entries)
+    save_last_used(url, folder)
+
+
+def load_history() -> List[Dict]:
+    """Return the list of logged scraping entries."""
+    return _read_json(HISTORY_FILE)
+
+
+def save_last_used(url: str, folder: str) -> None:
+    _write_json(LAST_USED_FILE, {"url": url, "folder": folder})
+
+
+def load_last_used() -> Dict[str, str]:
+    if not LAST_USED_FILE.exists():
+        return {"url": "", "folder": ""}
+    try:
+        with open(LAST_USED_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, dict):
+            return {"url": data.get("url", ""), "folder": data.get("folder", "")}
+    except Exception:
+        pass
+    return {"url": "", "folder": ""}
+```
+
+# MOTEUR/scraping/image_scraper.py
+Description: Source code for MOTEUR/scraping/image_scraper.py
+```python
 import os
 import re
 import time
@@ -309,8 +523,11 @@ def scrape_variants(driver: webdriver.Chrome) -> dict[str, str]:
 
 if __name__ == "__main__":
     scrape_images("https://exemple.com/produit", ".product-image img")
+```
 
-# profile_manager.py
+# MOTEUR/scraping/profile_manager.py
+Description: Source code for MOTEUR/scraping/profile_manager.py
+```python
 import json
 from pathlib import Path
 from typing import List, Dict
@@ -383,1138 +600,21 @@ def delete_profile(name: str) -> bool:
         return False
     save_profiles(new_profiles)
     return True
+```
 
-# history.py
-import json
-from pathlib import Path
-from datetime import datetime
-from typing import List, Dict
+# MOTEUR/scraping/server/__init__.py
+Description: Utilities for exposing the scraping features through a Flask bridge.
+```python
+"""Utilities for exposing the scraping features through a Flask bridge."""
 
-# Path to the history log file at project root
-HISTORY_FILE = Path(__file__).resolve().parents[2] / "scraping_history.json"
+from .flask_server import FlaskBridgeServer, JobManager, JobStatus
 
-# Path to file storing last used url/folder
-LAST_USED_FILE = Path(__file__).resolve().parents[2] / "scraping_last_used.json"
+__all__ = ["FlaskBridgeServer", "JobManager", "JobStatus"]
+```
 
-
-def _read_json(path: Path) -> List[Dict]:
-    if not path.exists():
-        return []
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f) or []
-    except Exception:
-        return []
-
-
-def _write_json(path: Path, data) -> None:
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
-
-
-def log_scrape(url: str, profile: str, images: int, folder: str) -> None:
-    """Append a scraping entry to :data:`HISTORY_FILE`."""
-    entries = _read_json(HISTORY_FILE)
-    entries.append(
-        {
-            "date": datetime.now().isoformat(timespec="seconds"),
-            "url": url,
-            "profile": profile,
-            "images": images,
-            "folder": folder,
-        }
-    )
-    _write_json(HISTORY_FILE, entries)
-    save_last_used(url, folder)
-
-
-def load_history() -> List[Dict]:
-    """Return the list of logged scraping entries."""
-    return _read_json(HISTORY_FILE)
-
-
-def save_last_used(url: str, folder: str) -> None:
-    _write_json(LAST_USED_FILE, {"url": url, "folder": folder})
-
-
-def load_last_used() -> Dict[str, str]:
-    if not LAST_USED_FILE.exists():
-        return {"url": "", "folder": ""}
-    try:
-        with open(LAST_USED_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        if isinstance(data, dict):
-            return {"url": data.get("url", ""), "folder": data.get("folder", "")}
-    except Exception:
-        pass
-    return {"url": "", "folder": ""}
-
-# bus/event_bus.py
-from PySide6.QtCore import QObject, Signal
-
-
-class EventBus(QObject):
-    profiles_changed = Signal()
-    history_changed = Signal()
-
-
-# singleton
-bus = EventBus()
-
-# widgets/profile_widget.py
-from PySide6.QtWidgets import (
-    QWidget,
-    QVBoxLayout,
-    QHBoxLayout,
-    QListWidget,
-    QLineEdit,
-    QPushButton,
-    QLabel,
-)
-from PySide6.QtCore import Signal, Slot, QTimer
-
-from .. import profile_manager as pm
-from ..bus.event_bus import bus
-
-
-class ProfileWidget(QWidget):
-    """Widget to manage scraping profiles."""
-
-    profile_chosen = Signal(str)
-    profiles_updated = Signal()
-
-    def __init__(self) -> None:
-        super().__init__()
-
-        self.profile_list = QListWidget()
-        self.profile_list.itemSelectionChanged.connect(self._on_profile_selected)
-
-        self.name_edit = QLineEdit()
-        self.selector_edit = QLineEdit()
-        self.selector_edit.setText(
-            ".woocommerce-product-gallery__image a"
-        )
-
-        self.add_btn = QPushButton("Ajouter")
-        self.add_btn.clicked.connect(self._add_profile)
-        self.update_btn = QPushButton("Modifier")
-        self.update_btn.clicked.connect(self._update_profile)
-        self.delete_btn = QPushButton("Supprimer")
-        self.delete_btn.clicked.connect(self._delete_profile)
-
-        form_layout = QVBoxLayout()
-        form_layout.addWidget(QLabel("Nom:"))
-        form_layout.addWidget(self.name_edit)
-        form_layout.addWidget(QLabel("Sélecteur CSS:"))
-        form_layout.addWidget(self.selector_edit)
-
-        btn_layout = QHBoxLayout()
-        btn_layout.addWidget(self.add_btn)
-        btn_layout.addWidget(self.update_btn)
-        btn_layout.addWidget(self.delete_btn)
-
-        layout = QVBoxLayout(self)
-        layout.addWidget(QLabel("Profils existants:"))
-        layout.addWidget(self.profile_list)
-        layout.addLayout(form_layout)
-        layout.addLayout(btn_layout)
-
-        self._load_profiles()
-
-        # watch for external profile changes
-        bus.profiles_changed.connect(self._load_profiles)
-
-        self._mtime = (
-            pm.PROFILES_FILE.stat().st_mtime if pm.PROFILES_FILE.exists() else 0
-        )
-        self._timer = QTimer(self)
-        self._timer.setInterval(2500)
-        self._timer.timeout.connect(self._check_profiles_file)
-        self._timer.start()
-
-    # ------------------------------------------------------------------
-    def _load_profiles(self) -> None:
-        """Load profiles from :mod:`profile_manager` and populate the list."""
-        self.profiles = pm.load_profiles()
-        self._refresh_list()
-
-    def _refresh_list(self) -> None:
-        self.profile_list.clear()
-        for profile in self.profiles:
-            self.profile_list.addItem(profile.get("name", ""))
-
-    @Slot()
-    def _on_profile_selected(self) -> None:
-        current = self.profile_list.currentRow()
-        if current < 0 or current >= len(self.profiles):
-            return
-        profile = self.profiles[current]
-        self.name_edit.setText(profile.get("name", ""))
-        self.selector_edit.setText(profile.get("selector", ""))
-        self.profile_chosen.emit(profile.get("name", ""))
-
-    @Slot()
-    def _add_profile(self) -> None:
-        name = self.name_edit.text().strip()
-        selector = self.selector_edit.text().strip()
-        if not name or not selector:
-            return
-        try:
-            pm.add_profile(name, selector)
-        except ValueError:
-            return
-        self._load_profiles()
-        self.profiles_updated.emit()
-
-    @Slot()
-    def _update_profile(self) -> None:
-        name = self.name_edit.text().strip()
-        selector = self.selector_edit.text().strip()
-        if not name or not selector:
-            return
-        if pm.update_profile(name, selector):
-            self._load_profiles()
-
-    @Slot()
-    def _delete_profile(self) -> None:
-        current = self.profile_list.currentRow()
-        if current < 0 or current >= len(self.profiles):
-            return
-        name = self.profiles[current].get("name", "")
-        if pm.delete_profile(name):
-            self._load_profiles()
-            self.profiles_updated.emit()
-
-    # ------------------------------------------------------------------
-    def _check_profiles_file(self) -> None:
-        p = pm.PROFILES_FILE
-        try:
-            m = p.stat().st_mtime
-            if m != self._mtime:
-                self._mtime = m
-                self._load_profiles()
-        except Exception:
-            pass
-
-
-# widgets/image_widget.py
-from PySide6.QtWidgets import (
-    QWidget,
-    QVBoxLayout,
-    QLabel,
-    QPushButton,
-    QTextEdit,
-    QProgressBar,
-    QLineEdit,
-    QFileDialog,
-    QHBoxLayout,
-    QComboBox,
-    QCheckBox,
-    QApplication,
-    QMessageBox,
-)
-from PySide6.QtCore import Qt, Slot
-from PySide6.QtGui import QClipboard
-from selenium.webdriver.common.by import By
-
-import sys
-from pathlib import Path
-
-
-class _ConsoleStream:
-    """File-like object writing text directly to a :class:`QTextEdit`."""
-
-    def __init__(self, widget: QTextEdit) -> None:
-        self.widget = widget
-
-    def write(self, text: str) -> int:
-        if text:
-            # Qt widgets must be manipulated from the GUI thread. Using
-            # ``append`` is safe enough for short text snippets.
-            self.widget.append(text.rstrip())
-        return len(text)
-
-    def flush(self) -> None:  # pragma: no cover - required for file-like API
-        pass
-
-from .. import profile_manager as pm
-from .. import history
-
-from ..image_scraper import scrape_images, scrape_variants
-
-
-class ImageScraperWidget(QWidget):
-    """Simple interface to run the image scraper."""
-
-    def __init__(self, *, storage_widget=None) -> None:
-        super().__init__()
-
-        self.storage_widget = storage_widget
-
-        self.export_data: list[dict[str, str]] = []
-
-        self.file_edit = QLineEdit()
-        self.file_edit.setPlaceholderText("Fichier texte contenant les URLs")
-        file_btn = QPushButton("Parcourir…")
-        file_btn.clicked.connect(self._choose_file)
-
-        file_layout = QHBoxLayout()
-        file_layout.addWidget(self.file_edit)
-        file_layout.addWidget(file_btn)
-
-        self.profile_combo = QComboBox()
-        self.profiles: list[dict[str, str]] = []
-        self.selected_selector: str = ""
-        self.profile_combo.currentIndexChanged.connect(self._on_profile_changed)
-
-        self.folder_edit = QLineEdit()
-        self.folder_edit.setPlaceholderText("Dossier de destination")
-
-        browse_btn = QPushButton("Parcourir…")
-        browse_btn.clicked.connect(self._choose_folder)
-
-        folder_layout = QHBoxLayout()
-        folder_layout.addWidget(self.folder_edit)
-        folder_layout.addWidget(browse_btn)
-
-        self.variants_checkbox = QCheckBox("Scraper aussi les variantes")
-
-        self.start_btn = QPushButton("Lancer")
-        self.start_btn.clicked.connect(self._start)
-        self.copy_btn = QPushButton("Copier")
-        self.copy_btn.clicked.connect(self._copy_console)
-        self.export_btn = QPushButton("Exporter")
-        self.export_btn.clicked.connect(self._export_excel)
-
-        buttons_layout = QHBoxLayout()
-        buttons_layout.addWidget(self.start_btn)
-        buttons_layout.addWidget(self.copy_btn)
-        buttons_layout.addWidget(self.export_btn)
-
-        self.console = QTextEdit()
-        self.console.setReadOnly(True)
-
-        self.progress_bar = QProgressBar()
-        self.progress_bar.hide()
-
-        layout = QVBoxLayout(self)
-        layout.addWidget(QLabel("Fichier :"))
-        layout.addLayout(file_layout)
-        layout.addWidget(QLabel("Profil:"))
-        layout.addWidget(self.profile_combo)
-        layout.addWidget(QLabel("Dossier:"))
-        layout.addLayout(folder_layout)
-        layout.addWidget(self.variants_checkbox)
-        layout.addLayout(buttons_layout)
-        layout.addWidget(self.console)
-        layout.addWidget(self.progress_bar)
-
-        self.refresh_profiles()
-        last = history.load_last_used()
-        self.file_edit.setText(last.get("url", ""))
-        self.folder_edit.setText(last.get("folder", ""))
-
-    # ------------------------------------------------------------------
-    def _on_profile_changed(self, index: int) -> None:
-        if 0 <= index < len(self.profiles):
-            self.selected_selector = self.profiles[index].get("selector", "")
-        else:
-            self.selected_selector = ""
-
-    def set_selected_profile(self, profile: str) -> None:
-        for i, p in enumerate(self.profiles):
-            if p.get("name") == profile:
-                self.profile_combo.setCurrentIndex(i)
-                self.selected_selector = p.get("selector", "")
-                return
-        self.profile_combo.setCurrentIndex(-1)
-        self.selected_selector = ""
-
-    def refresh_profiles(self) -> None:
-        self.profiles = pm.load_profiles()
-        current = self.profile_combo.currentText()
-        self.profile_combo.clear()
-        for p in self.profiles:
-            self.profile_combo.addItem(p.get("name", ""))
-        # restore previous selection if possible
-        if current:
-            self.set_selected_profile(current)
-        else:
-            self._on_profile_changed(self.profile_combo.currentIndex())
-
-    @Slot()
-    def _choose_folder(self) -> None:
-        path = QFileDialog.getExistingDirectory(self, "Choisir un dossier")
-        if path:
-            self.folder_edit.setText(path)
-
-    @Slot()
-    def _choose_file(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Choisir un fichier",
-            "",
-            "Text Files (*.txt);;All Files (*)",
-        )
-        if path:
-            self.file_edit.setText(path)
-
-    @Slot()
-    def _copy_console(self) -> None:
-        """Copy the console's contents to the clipboard."""
-        text = self.console.toPlainText()
-        QApplication.clipboard().setText(text, mode=QClipboard.Clipboard)
-        # Also populate the selection clipboard on platforms that support it.
-        QApplication.clipboard().setText(text, mode=QClipboard.Selection)
-
-    @Slot()
-    def _export_excel(self) -> None:
-        """Export scraped variant data to an Excel file."""
-        if not self.export_data:
-            QMessageBox.information(self, "Export", "Aucune donnée à exporter.")
-            return
-
-        path, _ = QFileDialog.getSaveFileName(
-            self,
-            "Enregistrer sous",
-            "",
-            "Excel Files (*.xlsx)",
-        )
-        if not path:
-            return
-
-        try:
-            from openpyxl import Workbook
-
-            wb = Workbook()
-            ws = wb.active
-            ws.append(["URL", "Variante", "Image"])
-            for row in self.export_data:
-                ws.append([row["URL"], row["Variant"], row["Image"]])
-            wb.save(path)
-        except Exception as exc:
-            QMessageBox.critical(self, "Export", f"Erreur: {exc}")
-            return
-
-        QMessageBox.information(self, "Export", "Export termin\u00e9.")
-
-    @Slot()
-    def _start(self) -> None:
-        file_path = self.file_edit.text().strip()
-        selector = self.selected_selector.strip()
-        folder = self.folder_edit.text().strip() or "images"
-        if not file_path or not selector:
-            self.console.append("❌ Fichier ou sélecteur manquant")
-            return
-
-        path = Path(file_path)
-        if not path.is_file():
-            self.console.append("❌ Fichier introuvable")
-            return
-
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                urls = [line.strip() for line in f if line.strip()]
-        except Exception as exc:
-            self.console.append(f"❌ Erreur à la lecture du fichier: {exc}")
-            return
-
-        if not urls:
-            self.console.append("❌ Aucun URL dans le fichier")
-            return
-
-        self.start_btn.setEnabled(False)
-        self.console.clear()
-        self.progress_bar.show()
-        self.progress_bar.setRange(0, 0)
-        stream = _ConsoleStream(self.console)
-        old_stdout = sys.stdout
-        sys.stdout = stream
-        self.export_data = []
-        try:
-            for url in urls:
-                try:
-                    if self.variants_checkbox.isChecked():
-                        total, driver = scrape_images(
-                            url, selector, folder, keep_driver=True
-                        )
-                        try:
-                            product_name = driver.find_element(By.TAG_NAME, "h1").text.strip()
-                        except Exception:
-                            product_name = ""
-                        variants = scrape_variants(driver)
-                        if self.storage_widget:
-                            self.storage_widget.add_product(product_name, list(variants.keys()))
-                        driver.quit()
-                    else:
-                        total = scrape_images(url, selector, folder)
-                        variants = {}
-                except Exception as exc:
-                    self.console.append(f"❌ Erreur sur {url}: {exc}")
-                else:
-                    self.console.append(f"✅ {url} - {total} images")
-                    for name, img in variants.items():
-                        self.console.append(f"  • {name}: {img}")
-                        self.export_data.append({"URL": url, "Variant": name, "Image": img})
-                    history.log_scrape(url, self.profile_combo.currentText(), total, folder)
-        finally:
-            sys.stdout = old_stdout
-            self.progress_bar.hide()
-            self.start_btn.setEnabled(True)
-
-
-
-# widgets/storage_widget.py
-from PySide6.QtWidgets import (
-    QWidget,
-    QVBoxLayout,
-    QPushButton,
-    QTableWidget,
-    QTableWidgetItem,
-)
-from PySide6.QtCore import Slot
-
-
-class StorageWidget(QWidget):
-    """Simple table to store scraped product names and variants."""
-
-    HEADERS = ["Nom du produit", "Variantes"]
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.table = QTableWidget(0, len(self.HEADERS))
-        self.table.setHorizontalHeaderLabels(self.HEADERS)
-
-        self.clear_btn = QPushButton("Vider le stockage")
-        self.clear_btn.clicked.connect(self.clear)
-
-        layout = QVBoxLayout(self)
-        layout.addWidget(self.table)
-        layout.addWidget(self.clear_btn)
-
-    # ------------------------------------------------------------------
-    def add_product(self, name: str, variants: list[str]) -> None:
-        row = self.table.rowCount()
-        self.table.insertRow(row)
-        self.table.setItem(row, 0, QTableWidgetItem(name))
-        self.table.setItem(row, 1, QTableWidgetItem(", ".join(variants)))
-
-    def get_products(self) -> list[dict[str, list[str]]]:
-        products: list[dict[str, list[str]]] = []
-        for row in range(self.table.rowCount()):
-            name_item = self.table.item(row, 0)
-            variants_item = self.table.item(row, 1)
-            name = name_item.text() if name_item else ""
-            variants_text = variants_item.text() if variants_item else ""
-            variants = [v.strip() for v in variants_text.split(",") if v.strip()]
-            products.append({"name": name, "variants": variants})
-        return products
-
-    @Slot()
-    def clear(self) -> None:
-        self.table.setRowCount(0)
-
-# widgets/woocommerce_widget.py
-from __future__ import annotations
-
-from PySide6.QtWidgets import (
-    QWidget,
-    QVBoxLayout,
-    QHBoxLayout,
-    QPushButton,
-    QTableWidget,
-    QTableWidgetItem,
-    QFileDialog,
-    QAbstractItemView,
-    QCheckBox,
-)
-from PySide6.QtCore import Slot
-import csv
-import random
-import string
-import re
-import unicodedata
-from pathlib import Path
-import requests
-
-
-class WooCommerceProductWidget(QWidget):
-    """Widget to edit WooCommerce product data in a table."""
-
-    HEADERS = [
-        "ID",
-        "Type",
-        "SKU",
-        "Name",
-        "Published",
-        "Short description",
-        "Description",
-        "Regular price",
-        "Sale price",
-        "Categories",
-        "Tags",
-        "Images",
-        "In stock?",
-        "Stock",
-        "Tax status",
-        "Shipping class",
-        "Attribute 1 name",
-        "Attribute 1 value(s)",
-        "Attribute 1 visible",
-        "Attribute 1 global",
-    ]
-
-    # Folder containing downloaded product images. Tests monkeypatch this path.
-    IMAGES_ROOT = Path("images")
-
-    # Base URL for uploaded WooCommerce images.
-    BASE_IMAGE_URL = "https://www.planetebob.fr/wp-content/uploads/2025/07/"
-
-    @staticmethod
-    def _slugify(text: str) -> str:
-        text = unicodedata.normalize("NFKD", text)
-        text = text.encode("ascii", "ignore").decode("ascii")
-        text = re.sub(r"[^a-zA-Z0-9\s-]", "", text)
-        text = re.sub(r"[\s_-]+", "-", text).strip("-")
-        return text.lower()
-
-    @staticmethod
-    def _clean_image_urls(urls: list[str]) -> list[str]:
-        """Remove duplicate image URLs using exact and prefix based checks."""
-        # Remove exact duplicates first
-        unique_urls = list(set(urls))
-
-        prefix_set: set[str] = set()
-        final_images: list[str] = []
-
-        for url in sorted(unique_urls):
-            filename = url.split("/")[-1]
-            prefix = filename.split("_")[0].split("-56cm")[0]
-
-            if prefix not in prefix_set:
-                final_images.append(url)
-                prefix_set.add(prefix)
-
-        return final_images
-
-    def __init__(self, *, storage_widget=None) -> None:
-        super().__init__()
-        self.storage_widget = storage_widget
-        self.table = QTableWidget(0, len(self.HEADERS))
-        self.table.setHorizontalHeaderLabels(self.HEADERS)
-        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-
-        add_btn = QPushButton("Ajouter une ligne")
-        del_btn = QPushButton("Supprimer la ligne sélectionnée")
-        fill_btn = QPushButton("Remplir")
-        check_btn = QPushButton("Vérifier URLs")
-        import_btn = QPushButton("Importer CSV")
-        export_btn = QPushButton("Exporter CSV")
-
-        add_btn.clicked.connect(self.add_row)
-        del_btn.clicked.connect(self.delete_selected_row)
-        fill_btn.clicked.connect(self.fill_from_storage)
-        check_btn.clicked.connect(self.check_urls)
-        import_btn.clicked.connect(self.import_csv)
-        export_btn.clicked.connect(self.export_csv)
-
-        btn_layout = QHBoxLayout()
-        btn_layout.addWidget(add_btn)
-        btn_layout.addWidget(del_btn)
-        btn_layout.addWidget(fill_btn)
-        btn_layout.addWidget(check_btn)
-        btn_layout.addStretch()
-        btn_layout.addWidget(import_btn)
-        btn_layout.addWidget(export_btn)
-
-        self.clean_images_checkbox = QCheckBox("Nettoyer les images dupliquées")
-        self.clean_images_checkbox.setChecked(True)
-
-        layout = QVBoxLayout(self)
-        layout.addLayout(btn_layout)
-        layout.addWidget(self.clean_images_checkbox)
-        layout.addWidget(self.table)
-
-    # ------------------------------------------------------------------
-    @Slot()
-    def add_row(self) -> None:
-        row = self.table.rowCount()
-        self.table.insertRow(row)
-        for col in range(self.table.columnCount()):
-            self.table.setItem(row, col, QTableWidgetItem(""))
-
-    @Slot()
-    def delete_selected_row(self) -> None:
-        row = self.table.currentRow()
-        if row >= 0:
-            self.table.removeRow(row)
-
-    @Slot()
-    def import_csv(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Importer CSV", "", "CSV Files (*.csv);;All Files (*)"
-        )
-        if not path:
-            return
-        try:
-            with open(path, newline="", encoding="utf-8") as f:
-                reader = csv.reader(f, delimiter="\t")
-                rows = list(reader)
-        except Exception:
-            return
-        if not rows:
-            return
-        start = 1 if rows[0][: len(self.HEADERS)] == self.HEADERS else 0
-        for data in rows[start:]:
-            row = self.table.rowCount()
-            self.table.insertRow(row)
-            for col in range(len(self.HEADERS)):
-                value = data[col] if col < len(data) else ""
-                self.table.setItem(row, col, QTableWidgetItem(value))
-
-    @Slot()
-    def export_csv(self) -> None:
-        path, _ = QFileDialog.getSaveFileName(
-            self, "Exporter CSV", "", "CSV Files (*.csv);;All Files (*)"
-        )
-        if not path:
-            return
-        with open(path, "w", newline="", encoding="utf-8") as f:
-            writer = csv.writer(f, delimiter=";")
-            writer.writerow(self.HEADERS)
-            for row in range(self.table.rowCount()):
-                data = []
-                for col in range(self.table.columnCount()):
-                    item = self.table.item(row, col)
-                    data.append(item.text() if item else "")
-                writer.writerow(data)
-
-    @Slot()
-    def check_urls(self) -> None:
-        """Check that image URLs in the table are reachable and export a CSV."""
-        path, _ = QFileDialog.getSaveFileName(
-            self, "Exporter résultat", "", "CSV Files (*.csv);;All Files (*)"
-        )
-        if not path:
-            return
-
-        img_col = self.HEADERS.index("Images")
-        urls: list[str] = []
-        for row in range(self.table.rowCount()):
-            item = self.table.item(row, img_col)
-            if not item:
-                continue
-            urls.extend(u.strip() for u in item.text().split(", ") if u.strip())
-
-        results: list[tuple[str, str]] = []
-        for url in urls:
-            try:
-                resp = requests.head(url, timeout=5)
-                ok = resp.status_code == 200
-            except Exception:
-                ok = False
-            results.append((url, "oui" if ok else "non"))
-
-        with open(path, "w", newline="", encoding="utf-8") as f:
-            writer = csv.writer(f, delimiter=";")
-            writer.writerow(["URL", "OK"])
-            writer.writerows(results)
-
-    # ------------------------------------------------------------------
-    @Slot()
-    def fill_from_storage(self) -> None:
-        """Create new rows from the linked storage widget."""
-        if not self.storage_widget:
-            return
-        products = self.storage_widget.get_products()
-        # Clear any previously populated rows before filling again so
-        # repeated calls don't accumulate duplicates.
-        self.table.setRowCount(0)
-        type_col = self.HEADERS.index("Type")
-        sku_col = self.HEADERS.index("SKU")
-        name_col = self.HEADERS.index("Name")
-        img_col = self.HEADERS.index("Images")
-
-        used_skus: set[str] = set()
-
-        def _gen_sku() -> str:
-            """Generate a unique random SKU."""
-            while True:
-                sku = "SKU-" + "".join(
-                    random.choices(string.ascii_uppercase + string.digits, k=8)
-                )
-                if sku not in used_skus:
-                    used_skus.add(sku)
-                    return sku
-
-        for prod in products:
-            product_name = prod["name"]
-            variants = prod["variants"]
-            product_slug = self._slugify(product_name)
-            folder = self.IMAGES_ROOT / product_name
-            local_images: list[str] = []
-            if folder.is_dir():
-                for p in sorted(folder.iterdir()):
-                    if p.suffix.lower() in {".webp", ".jpg", ".jpeg", ".png"}:
-                        local_images.append(p.name)
-
-            variant_files = [
-                f"{product_slug}-{self._slugify(v)}.jpg" for v in variants
-            ]
-            generic_images = [img for img in local_images if img not in variant_files]
-
-            is_variable = len(variants) > 1
-
-            if is_variable:
-                row = self.table.rowCount()
-                self.table.insertRow(row)
-                for col in range(self.table.columnCount()):
-                    self.table.setItem(row, col, QTableWidgetItem(""))
-
-                parent_sku = _gen_sku()
-                self.table.setItem(row, type_col, QTableWidgetItem("variable"))
-                self.table.setItem(row, sku_col, QTableWidgetItem(parent_sku))
-                self.table.setItem(row, name_col, QTableWidgetItem(product_name))
-                parent_images = [
-                    self.BASE_IMAGE_URL + img for img in generic_images + variant_files
-                ]
-                if self.clean_images_checkbox.isChecked():
-                    parent_images = self._clean_image_urls(parent_images)
-                if parent_images:
-                    self.table.setItem(
-                        row,
-                        img_col,
-                        QTableWidgetItem(", ".join(parent_images)),
-                    )
-
-                current_row = row
-                for variant in variants:
-                    current_row += 1
-                    self.table.insertRow(current_row)
-                    for c in range(self.table.columnCount()):
-                        self.table.setItem(current_row, c, QTableWidgetItem(""))
-                    self.table.setItem(current_row, type_col, QTableWidgetItem("variation"))
-                    var_slug = self._slugify(variant)
-                    sku_var = f"{parent_sku}-{var_slug}"
-                    used_skus.add(sku_var)
-                    name_var = f"{product_name} {variant}"
-                    self.table.setItem(current_row, sku_col, QTableWidgetItem(sku_var))
-                    self.table.setItem(current_row, name_col, QTableWidgetItem(name_var))
-                    var_img = self.BASE_IMAGE_URL + f"{product_slug}-{var_slug}.jpg"
-                self.table.setItem(current_row, img_col, QTableWidgetItem(var_img))
-            else:
-                row = self.table.rowCount()
-                self.table.insertRow(row)
-                for col in range(self.table.columnCount()):
-                    self.table.setItem(row, col, QTableWidgetItem(""))
-
-                sku_val = _gen_sku()
-                self.table.setItem(row, type_col, QTableWidgetItem("simple"))
-                self.table.setItem(row, sku_col, QTableWidgetItem(sku_val))
-                self.table.setItem(row, name_col, QTableWidgetItem(product_name))
-                images = [self.BASE_IMAGE_URL + img for img in generic_images + variant_files]
-                if self.clean_images_checkbox.isChecked():
-                    images = self._clean_image_urls(images)
-                if images:
-                    self.table.setItem(
-                        row,
-                        img_col,
-                        QTableWidgetItem(", ".join(images)),
-                    )
-
-
-
-# widgets/flask_server_widget.py
-from __future__ import annotations
-
-"""Widget de contrôle pour :class:`FlaskBridgeServer`."""
-
-from PySide6.QtWidgets import (
-    QWidget,
-    QVBoxLayout,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QPushButton,
-    QCheckBox,
-    QTextEdit,
-    QApplication,
-)
-from PySide6.QtCore import Slot
-import json
-import os
-import secrets
-
-from ..server.flask_server import FlaskBridgeServer
-
-CFG_FILE = "server_config.json"
-
-
-class FlaskServerWidget(QWidget):
-    """Interface graphique minimaliste pour démarrer le serveur Flask."""
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.server = FlaskBridgeServer(on_log=self._append)
-        self._build_ui()
-        self._load_cfg()
-
-    # ------------------------------------------------------------------
-    def _build_ui(self) -> None:
-        self.port = QLineEdit("5001")
-        self.api_key = QLineEdit(os.getenv("SCRAPER_API_KEY", ""))
-        gen = QPushButton("Générer")
-        gen.clicked.connect(self._gen_key)
-        self.expose = QCheckBox("Expose via ngrok")
-        self.ngrok_token = QLineEdit(os.getenv("NGROK_AUTHTOKEN", ""))
-        self.ngrok_token.setEchoMode(QLineEdit.Password)
-        self.headless = QCheckBox("Headless par défaut")
-        self.headless.setChecked(True)
-        self.ignore_robots = QCheckBox("Ignorer robots.txt par défaut")
-        self.rate = QLineEdit("0")
-        self.maxw = QLineEdit("1")
-
-        self.start = QPushButton("Démarrer")
-        self.stop = QPushButton("Arrêter")
-        self.stop.setEnabled(False)
-        self.url_label = QLabel("URL publique : (non exposé)")
-        self.status_label = QLabel("Statut : Arrêté")
-        self.console = QTextEdit()
-        self.console.setReadOnly(True)
-        copyurl = QPushButton("Copier URL")
-        copyurl.clicked.connect(self._copy_url)
-
-        # layouts
-        top = QHBoxLayout()
-        top.addWidget(QLabel("Port:"))
-        top.addWidget(self.port)
-
-        k = QHBoxLayout()
-        k.addWidget(QLabel("API Key:"))
-        k.addWidget(self.api_key)
-        k.addWidget(gen)
-
-        n = QHBoxLayout()
-        n.addWidget(self.expose)
-        n.addWidget(QLabel("Ngrok token:"))
-        n.addWidget(self.ngrok_token)
-
-        o = QHBoxLayout()
-        o.addWidget(self.headless)
-        o.addWidget(self.ignore_robots)
-
-        r = QHBoxLayout()
-        r.addWidget(QLabel("Rate (img/min):"))
-        r.addWidget(self.rate)
-        r.addWidget(QLabel("Max workers:"))
-        r.addWidget(self.maxw)
-
-        btn = QHBoxLayout()
-        btn.addWidget(self.start)
-        btn.addWidget(self.stop)
-        btn.addWidget(copyurl)
-
-        lay = QVBoxLayout(self)
-        for row in (top, k, n, o, r, btn):
-            lay.addLayout(row)
-        lay.addWidget(self.status_label)
-        lay.addWidget(self.url_label)
-        lay.addWidget(self.console)
-
-        self.start.clicked.connect(self._start)
-        self.stop.clicked.connect(self._stop)
-
-    # ------------------------------------------------------------------
-    def _append(self, text: str) -> None:
-        self.console.append(text)
-
-    def _gen_key(self) -> None:
-        self.api_key.setText(secrets.token_urlsafe(24))
-
-    def _copy_url(self) -> None:
-        QApplication.clipboard().setText(
-            self.url_label.text().replace("URL publique : ", "")
-        )
-
-    # ------------------------------------------------------------------
-    def _load_cfg(self) -> None:
-        try:
-            if os.path.exists(CFG_FILE):
-                with open(CFG_FILE, "r", encoding="utf-8") as f:
-                    cfg = json.load(f)
-                self.port.setText(str(cfg.get("port", 5001)))
-                self.api_key.setText(cfg.get("api_key", ""))
-                self.expose.setChecked(bool(cfg.get("expose", False)))
-                self.ngrok_token.setText(cfg.get("ngrok_token", ""))
-                self.headless.setChecked(bool(cfg.get("headless", True)))
-                self.ignore_robots.setChecked(bool(cfg.get("ignore_robots", False)))
-                self.rate.setText(str(cfg.get("rate", 0)))
-                self.maxw.setText(str(cfg.get("max_workers", 1)))
-        except Exception:
-            pass
-
-    def _save_cfg(self) -> dict:
-        cfg = {
-            "port": int(self.port.text() or 5001),
-            "api_key": self.api_key.text().strip(),
-            "expose": self.expose.isChecked(),
-            "ngrok_token": self.ngrok_token.text().strip(),
-            "headless": self.headless.isChecked(),
-            "ignore_robots": self.ignore_robots.isChecked(),
-            "rate": int(self.rate.text() or 0),
-            "max_workers": int(self.maxw.text() or 1),
-        }
-        with open(CFG_FILE, "w", encoding="utf-8") as f:
-            json.dump(cfg, f, indent=2, ensure_ascii=False)
-        return cfg
-
-    # ------------------------------------------------------------------
-    @Slot()
-    def _start(self) -> None:
-        cfg = self._save_cfg()
-        try:
-            self.server.start(
-                port=cfg["port"],
-                api_key=cfg["api_key"],
-                headless_default=cfg["headless"],
-                user_agent=None,
-                ignore_robots_default=cfg["ignore_robots"],
-                rate_limit=cfg["rate"],
-                max_workers=cfg["max_workers"],
-            )
-            pub = ""
-            if cfg["expose"]:
-                pub = self.server.enable_ngrok(cfg["ngrok_token"], cfg["port"])
-            self.status_label.setText("Statut : En cours d’exécution")
-            self.url_label.setText(
-                f"URL publique : {pub or f'http://localhost:{cfg['port']}/health'}"
-            )
-            self.start.setEnabled(False)
-            self.stop.setEnabled(True)
-            self._append("🚀 Serveur démarré")
-        except Exception as e:  # pragma: no cover - UI feedback
-            self._append(f"❌ Erreur démarrage : {e}")
-
-    @Slot()
-    def _stop(self) -> None:
-        try:
-            self.server.stop()
-            self.status_label.setText("Statut : Arrêté")
-            self.url_label.setText("URL publique : (non exposé)")
-            self.start.setEnabled(True)
-            self.stop.setEnabled(False)
-            self._append("🛑 Serveur arrêté")
-        except Exception as e:  # pragma: no cover - UI feedback
-            self._append(f"❌ Erreur arrêt : {e}")
-
-# widgets/history_widget.py
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QTextEdit, QPushButton
-from PySide6.QtCore import Slot
-
-from .. import history
-
-
-class HistoryWidget(QWidget):
-    """Display previous scraping runs."""
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.text = QTextEdit(readOnly=True)
-        self.refresh_btn = QPushButton("Rafraîchir")
-        self.refresh_btn.clicked.connect(self.refresh)
-
-        layout = QVBoxLayout(self)
-        layout.addWidget(self.text)
-        layout.addWidget(self.refresh_btn)
-
-        self.refresh()
-
-    @Slot()
-    def refresh(self) -> None:
-        entries = history.load_history()
-        lines = []
-        for entry in entries:
-            lines.append(
-                f"{entry.get('date','')} - {entry.get('url','')} ("\
-                f"{entry.get('profile','')} - {entry.get('images',0)} images)"
-            )
-        self.text.setPlainText("\n".join(lines))
-
-# widgets/settings_widget.py
-from PySide6.QtWidgets import QWidget, QVBoxLayout
-from PySide6.QtCore import Signal
-
-
-class ScrapingSettingsWidget(QWidget):
-    module_toggled = Signal(str, bool)
-    rename_toggled = Signal(bool)
-
-    def __init__(self, modules_order=None):
-        super().__init__()
-        layout = QVBoxLayout(self)
-        (modules_order or [])
-
-
-
-# widgets/scrap_widget.py
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QTabWidget
-
-from .image_widget import ImageScraperWidget
-from .history_widget import HistoryWidget
-from .woocommerce_widget import WooCommerceProductWidget
-from .storage_widget import StorageWidget
-from .flask_server_widget import FlaskServerWidget
-
-
-class _DummySubWidget(QWidget):
-    def __init__(self) -> None:
-        super().__init__()
-        layout = QVBoxLayout(self)
-
-    def set_selected_profile(self, profile: str) -> None:
-        pass
-
-    def refresh_profiles(self) -> None:
-        pass
-
-
-class ScrapWidget(QWidget):
-    def __init__(self) -> None:
-        super().__init__()
-        self.modules_order = [
-            "images",
-            "combined",
-            "flask",
-            "history",
-            "woocommerce",
-            "stockage",
-        ]
-        self.storage_widget = StorageWidget()
-        self.images_widget = ImageScraperWidget(storage_widget=self.storage_widget)
-        self.combined_widget = _DummySubWidget()
-        self.flask_widget = FlaskServerWidget()
-        self.history_widget = HistoryWidget()
-        self.woocommerce_widget = WooCommerceProductWidget(
-            storage_widget=self.storage_widget
-        )
-        self.tabs = QTabWidget()
-        self.tabs.addTab(self.images_widget, "Images")
-        self.tabs.addTab(self.combined_widget, "Combined")
-        self.tabs.addTab(self.flask_widget, "Serveur Flask")
-        self.tabs.addTab(self.history_widget, "Historique")
-        self.tabs.addTab(self.woocommerce_widget, "Fiche Produit WooCommerce")
-        self.tabs.addTab(self.storage_widget, "Stockage")
-        layout = QVBoxLayout(self)
-        layout.addWidget(self.tabs)
-
-    def toggle_module(self, name: str, enabled: bool) -> None:
-        pass
-
-    def set_rename(self, enabled: bool) -> None:
-        pass
-
-
-# server/flask_server.py
+# MOTEUR/scraping/server/flask_server.py
+Description: Source code for MOTEUR/scraping/server/flask_server.py
+```python
 from __future__ import annotations
 
 """Small Flask server to remotely trigger scraping jobs.
@@ -1869,3 +969,2593 @@ class FlaskBridgeServer:
         """Return ``True`` if the server is currently running."""
 
         return self._server is not None
+```
+
+# MOTEUR/scraping/utils/__init__.py
+Description: Source code for MOTEUR/scraping/utils/__init__.py
+```python
+
+```
+
+# MOTEUR/scraping/utils/restart.py
+Description: Source code for MOTEUR/scraping/utils/restart.py
+```python
+from __future__ import annotations
+import os
+import sys
+import subprocess
+import time
+
+
+def relaunch_current_process(delay_sec: float = 0.2) -> None:
+    """
+    Relance ce programme avec les mêmes arguments, puis rend la main.
+    Ne quitte PAS le process courant (laisse l'appelant le faire).
+    """
+    python = sys.executable
+    script = os.path.abspath(sys.argv[0])
+    argv = [python, script] + sys.argv[1:]
+    try:
+        creationflags = 0
+        # Évite une console parasite sur Windows
+        if os.name == "nt":
+            CREATE_NEW_PROCESS_GROUP = 0x00000200
+            DETACHED_PROCESS = 0x00000008
+            creationflags = DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+        subprocess.Popen(
+            argv,
+            close_fds=(os.name != "nt"),
+            creationflags=creationflags or 0
+        )
+    except Exception as e:
+        print(f"[restart] Erreur au relancement: {e}")
+    # petit délai pour laisser le temps à la nouvelle instance de démarrer
+    time.sleep(delay_sec)
+```
+
+# MOTEUR/scraping/widgets/__init__.py
+Description: Source code for MOTEUR/scraping/widgets/__init__.py
+```python
+
+```
+
+# MOTEUR/scraping/widgets/flask_server_widget.py
+Description: Source code for MOTEUR/scraping/widgets/flask_server_widget.py
+```python
+from __future__ import annotations
+
+"""Widget de contrôle pour :class:`FlaskBridgeServer`."""
+
+from PySide6.QtWidgets import (
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QCheckBox,
+    QTextEdit,
+    QApplication,
+)
+from PySide6.QtCore import Slot
+import json
+import os
+import secrets
+
+from ..server.flask_server import FlaskBridgeServer
+
+CFG_FILE = "server_config.json"
+
+
+class FlaskServerWidget(QWidget):
+    """Interface graphique minimaliste pour démarrer le serveur Flask."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.server = FlaskBridgeServer(on_log=self._append)
+        self._build_ui()
+        self._load_cfg()
+
+    # ------------------------------------------------------------------
+    def _build_ui(self) -> None:
+        self.port = QLineEdit("5001")
+        self.api_key = QLineEdit(os.getenv("SCRAPER_API_KEY", ""))
+        gen = QPushButton("Générer")
+        gen.clicked.connect(self._gen_key)
+        self.expose = QCheckBox("Expose via ngrok")
+        self.ngrok_token = QLineEdit(os.getenv("NGROK_AUTHTOKEN", ""))
+        self.ngrok_token.setEchoMode(QLineEdit.Password)
+        self.headless = QCheckBox("Headless par défaut")
+        self.headless.setChecked(True)
+        self.ignore_robots = QCheckBox("Ignorer robots.txt par défaut")
+        self.rate = QLineEdit("0")
+        self.maxw = QLineEdit("1")
+
+        self.start = QPushButton("Démarrer")
+        self.stop = QPushButton("Arrêter")
+        self.stop.setEnabled(False)
+        self.url_label = QLabel("URL publique : (non exposé)")
+        self.status_label = QLabel("Statut : Arrêté")
+        self.console = QTextEdit()
+        self.console.setReadOnly(True)
+        copyurl = QPushButton("Copier URL")
+        copyurl.clicked.connect(self._copy_url)
+
+        # layouts
+        top = QHBoxLayout()
+        top.addWidget(QLabel("Port:"))
+        top.addWidget(self.port)
+
+        k = QHBoxLayout()
+        k.addWidget(QLabel("API Key:"))
+        k.addWidget(self.api_key)
+        k.addWidget(gen)
+
+        n = QHBoxLayout()
+        n.addWidget(self.expose)
+        n.addWidget(QLabel("Ngrok token:"))
+        n.addWidget(self.ngrok_token)
+
+        o = QHBoxLayout()
+        o.addWidget(self.headless)
+        o.addWidget(self.ignore_robots)
+
+        r = QHBoxLayout()
+        r.addWidget(QLabel("Rate (img/min):"))
+        r.addWidget(self.rate)
+        r.addWidget(QLabel("Max workers:"))
+        r.addWidget(self.maxw)
+
+        btn = QHBoxLayout()
+        btn.addWidget(self.start)
+        btn.addWidget(self.stop)
+        btn.addWidget(copyurl)
+
+        lay = QVBoxLayout(self)
+        for row in (top, k, n, o, r, btn):
+            lay.addLayout(row)
+        lay.addWidget(self.status_label)
+        lay.addWidget(self.url_label)
+        lay.addWidget(self.console)
+
+        self.start.clicked.connect(self._start)
+        self.stop.clicked.connect(self._stop)
+
+    # ------------------------------------------------------------------
+    def _append(self, text: str) -> None:
+        self.console.append(text)
+
+    def _gen_key(self) -> None:
+        self.api_key.setText(secrets.token_urlsafe(24))
+
+    def _copy_url(self) -> None:
+        QApplication.clipboard().setText(
+            self.url_label.text().replace("URL publique : ", "")
+        )
+
+    # ------------------------------------------------------------------
+    def _load_cfg(self) -> None:
+        try:
+            if os.path.exists(CFG_FILE):
+                with open(CFG_FILE, "r", encoding="utf-8") as f:
+                    cfg = json.load(f)
+                self.port.setText(str(cfg.get("port", 5001)))
+                self.api_key.setText(cfg.get("api_key", ""))
+                self.expose.setChecked(bool(cfg.get("expose", False)))
+                self.ngrok_token.setText(cfg.get("ngrok_token", ""))
+                self.headless.setChecked(bool(cfg.get("headless", True)))
+                self.ignore_robots.setChecked(bool(cfg.get("ignore_robots", False)))
+                self.rate.setText(str(cfg.get("rate", 0)))
+                self.maxw.setText(str(cfg.get("max_workers", 1)))
+        except Exception:
+            pass
+
+    def _save_cfg(self) -> dict:
+        cfg = {
+            "port": int(self.port.text() or 5001),
+            "api_key": self.api_key.text().strip(),
+            "expose": self.expose.isChecked(),
+            "ngrok_token": self.ngrok_token.text().strip(),
+            "headless": self.headless.isChecked(),
+            "ignore_robots": self.ignore_robots.isChecked(),
+            "rate": int(self.rate.text() or 0),
+            "max_workers": int(self.maxw.text() or 1),
+        }
+        with open(CFG_FILE, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2, ensure_ascii=False)
+        return cfg
+
+    # ------------------------------------------------------------------
+    @Slot()
+    def _start(self) -> None:
+        cfg = self._save_cfg()
+        try:
+            self.server.start(
+                port=cfg["port"],
+                api_key=cfg["api_key"],
+                headless_default=cfg["headless"],
+                user_agent=None,
+                ignore_robots_default=cfg["ignore_robots"],
+                rate_limit=cfg["rate"],
+                max_workers=cfg["max_workers"],
+            )
+            pub = ""
+            if cfg["expose"]:
+                pub = self.server.enable_ngrok(cfg["ngrok_token"], cfg["port"])
+            self.status_label.setText("Statut : En cours d’exécution")
+            self.url_label.setText(
+                f"URL publique : {pub or f'http://localhost:{cfg['port']}/health'}"
+            )
+            self.start.setEnabled(False)
+            self.stop.setEnabled(True)
+            self._append("🚀 Serveur démarré")
+        except Exception as e:  # pragma: no cover - UI feedback
+            self._append(f"❌ Erreur démarrage : {e}")
+
+    @Slot()
+    def _stop(self) -> None:
+        try:
+            self.server.stop()
+            self.status_label.setText("Statut : Arrêté")
+            self.url_label.setText("URL publique : (non exposé)")
+            self.start.setEnabled(True)
+            self.stop.setEnabled(False)
+            self._append("🛑 Serveur arrêté")
+        except Exception as e:  # pragma: no cover - UI feedback
+            self._append(f"❌ Erreur arrêt : {e}")
+```
+
+# MOTEUR/scraping/widgets/history_widget.py
+Description: Source code for MOTEUR/scraping/widgets/history_widget.py
+```python
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QTextEdit, QPushButton
+from PySide6.QtCore import Slot
+
+from .. import history
+
+
+class HistoryWidget(QWidget):
+    """Display previous scraping runs."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.text = QTextEdit(readOnly=True)
+        self.refresh_btn = QPushButton("Rafraîchir")
+        self.refresh_btn.clicked.connect(self.refresh)
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(self.text)
+        layout.addWidget(self.refresh_btn)
+
+        self.refresh()
+
+    @Slot()
+    def refresh(self) -> None:
+        entries = history.load_history()
+        lines = []
+        for entry in entries:
+            lines.append(
+                f"{entry.get('date','')} - {entry.get('url','')} ("\
+                f"{entry.get('profile','')} - {entry.get('images',0)} images)"
+            )
+        self.text.setPlainText("\n".join(lines))
+```
+
+# MOTEUR/scraping/widgets/image_widget.py
+Description: Source code for MOTEUR/scraping/widgets/image_widget.py
+```python
+from PySide6.QtWidgets import (
+    QWidget,
+    QVBoxLayout,
+    QLabel,
+    QPushButton,
+    QTextEdit,
+    QProgressBar,
+    QLineEdit,
+    QFileDialog,
+    QHBoxLayout,
+    QComboBox,
+    QCheckBox,
+    QApplication,
+    QMessageBox,
+)
+from PySide6.QtCore import Qt, Slot
+from PySide6.QtGui import QClipboard
+from selenium.webdriver.common.by import By
+
+import sys
+from pathlib import Path
+
+
+class _ConsoleStream:
+    """File-like object writing text directly to a :class:`QTextEdit`."""
+
+    def __init__(self, widget: QTextEdit) -> None:
+        self.widget = widget
+
+    def write(self, text: str) -> int:
+        if text:
+            # Qt widgets must be manipulated from the GUI thread. Using
+            # ``append`` is safe enough for short text snippets.
+            self.widget.append(text.rstrip())
+        return len(text)
+
+    def flush(self) -> None:  # pragma: no cover - required for file-like API
+        pass
+
+from .. import profile_manager as pm
+from .. import history
+
+from ..image_scraper import scrape_images, scrape_variants
+
+
+class ImageScraperWidget(QWidget):
+    """Simple interface to run the image scraper."""
+
+    def __init__(self, *, storage_widget=None) -> None:
+        super().__init__()
+
+        self.storage_widget = storage_widget
+
+        self.export_data: list[dict[str, str]] = []
+
+        self.file_edit = QLineEdit()
+        self.file_edit.setPlaceholderText("Fichier texte contenant les URLs")
+        file_btn = QPushButton("Parcourir…")
+        file_btn.clicked.connect(self._choose_file)
+
+        file_layout = QHBoxLayout()
+        file_layout.addWidget(self.file_edit)
+        file_layout.addWidget(file_btn)
+
+        self.profile_combo = QComboBox()
+        self.profiles: list[dict[str, str]] = []
+        self.selected_selector: str = ""
+        self.profile_combo.currentIndexChanged.connect(self._on_profile_changed)
+
+        self.folder_edit = QLineEdit()
+        self.folder_edit.setPlaceholderText("Dossier de destination")
+
+        browse_btn = QPushButton("Parcourir…")
+        browse_btn.clicked.connect(self._choose_folder)
+
+        folder_layout = QHBoxLayout()
+        folder_layout.addWidget(self.folder_edit)
+        folder_layout.addWidget(browse_btn)
+
+        self.variants_checkbox = QCheckBox("Scraper aussi les variantes")
+
+        self.start_btn = QPushButton("Lancer")
+        self.start_btn.clicked.connect(self._start)
+        self.copy_btn = QPushButton("Copier")
+        self.copy_btn.clicked.connect(self._copy_console)
+        self.export_btn = QPushButton("Exporter")
+        self.export_btn.clicked.connect(self._export_excel)
+
+        buttons_layout = QHBoxLayout()
+        buttons_layout.addWidget(self.start_btn)
+        buttons_layout.addWidget(self.copy_btn)
+        buttons_layout.addWidget(self.export_btn)
+
+        self.console = QTextEdit()
+        self.console.setReadOnly(True)
+
+        self.progress_bar = QProgressBar()
+        self.progress_bar.hide()
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel("Fichier :"))
+        layout.addLayout(file_layout)
+        layout.addWidget(QLabel("Profil:"))
+        layout.addWidget(self.profile_combo)
+        layout.addWidget(QLabel("Dossier:"))
+        layout.addLayout(folder_layout)
+        layout.addWidget(self.variants_checkbox)
+        layout.addLayout(buttons_layout)
+        layout.addWidget(self.console)
+        layout.addWidget(self.progress_bar)
+
+        self.refresh_profiles()
+        last = history.load_last_used()
+        self.file_edit.setText(last.get("url", ""))
+        self.folder_edit.setText(last.get("folder", ""))
+
+    # ------------------------------------------------------------------
+    def _on_profile_changed(self, index: int) -> None:
+        if 0 <= index < len(self.profiles):
+            self.selected_selector = self.profiles[index].get("selector", "")
+        else:
+            self.selected_selector = ""
+
+    def set_selected_profile(self, profile: str) -> None:
+        for i, p in enumerate(self.profiles):
+            if p.get("name") == profile:
+                self.profile_combo.setCurrentIndex(i)
+                self.selected_selector = p.get("selector", "")
+                return
+        self.profile_combo.setCurrentIndex(-1)
+        self.selected_selector = ""
+
+    def refresh_profiles(self) -> None:
+        self.profiles = pm.load_profiles()
+        current = self.profile_combo.currentText()
+        self.profile_combo.clear()
+        for p in self.profiles:
+            self.profile_combo.addItem(p.get("name", ""))
+        # restore previous selection if possible
+        if current:
+            self.set_selected_profile(current)
+        else:
+            self._on_profile_changed(self.profile_combo.currentIndex())
+
+    @Slot()
+    def _choose_folder(self) -> None:
+        path = QFileDialog.getExistingDirectory(self, "Choisir un dossier")
+        if path:
+            self.folder_edit.setText(path)
+
+    @Slot()
+    def _choose_file(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Choisir un fichier",
+            "",
+            "Text Files (*.txt);;All Files (*)",
+        )
+        if path:
+            self.file_edit.setText(path)
+
+    @Slot()
+    def _copy_console(self) -> None:
+        """Copy the console's contents to the clipboard."""
+        text = self.console.toPlainText()
+        QApplication.clipboard().setText(text, mode=QClipboard.Clipboard)
+        # Also populate the selection clipboard on platforms that support it.
+        QApplication.clipboard().setText(text, mode=QClipboard.Selection)
+
+    @Slot()
+    def _export_excel(self) -> None:
+        """Export scraped variant data to an Excel file."""
+        if not self.export_data:
+            QMessageBox.information(self, "Export", "Aucune donnée à exporter.")
+            return
+
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Enregistrer sous",
+            "",
+            "Excel Files (*.xlsx)",
+        )
+        if not path:
+            return
+
+        try:
+            from openpyxl import Workbook
+
+            wb = Workbook()
+            ws = wb.active
+            ws.append(["URL", "Variante", "Image"])
+            for row in self.export_data:
+                ws.append([row["URL"], row["Variant"], row["Image"]])
+            wb.save(path)
+        except Exception as exc:
+            QMessageBox.critical(self, "Export", f"Erreur: {exc}")
+            return
+
+        QMessageBox.information(self, "Export", "Export termin\u00e9.")
+
+    @Slot()
+    def _start(self) -> None:
+        file_path = self.file_edit.text().strip()
+        selector = self.selected_selector.strip()
+        folder = self.folder_edit.text().strip() or "images"
+        if not file_path or not selector:
+            self.console.append("❌ Fichier ou sélecteur manquant")
+            return
+
+        path = Path(file_path)
+        if not path.is_file():
+            self.console.append("❌ Fichier introuvable")
+            return
+
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                urls = [line.strip() for line in f if line.strip()]
+        except Exception as exc:
+            self.console.append(f"❌ Erreur à la lecture du fichier: {exc}")
+            return
+
+        if not urls:
+            self.console.append("❌ Aucun URL dans le fichier")
+            return
+
+        self.start_btn.setEnabled(False)
+        self.console.clear()
+        self.progress_bar.show()
+        self.progress_bar.setRange(0, 0)
+        stream = _ConsoleStream(self.console)
+        old_stdout = sys.stdout
+        sys.stdout = stream
+        self.export_data = []
+        try:
+            for url in urls:
+                try:
+                    if self.variants_checkbox.isChecked():
+                        total, driver = scrape_images(
+                            url, selector, folder, keep_driver=True
+                        )
+                        try:
+                            product_name = driver.find_element(By.TAG_NAME, "h1").text.strip()
+                        except Exception:
+                            product_name = ""
+                        variants = scrape_variants(driver)
+                        if self.storage_widget:
+                            self.storage_widget.add_product(product_name, list(variants.keys()))
+                        driver.quit()
+                    else:
+                        total = scrape_images(url, selector, folder)
+                        variants = {}
+                except Exception as exc:
+                    self.console.append(f"❌ Erreur sur {url}: {exc}")
+                else:
+                    self.console.append(f"✅ {url} - {total} images")
+                    for name, img in variants.items():
+                        self.console.append(f"  • {name}: {img}")
+                        self.export_data.append({"URL": url, "Variant": name, "Image": img})
+                    history.log_scrape(url, self.profile_combo.currentText(), total, folder)
+        finally:
+            sys.stdout = old_stdout
+            self.progress_bar.hide()
+            self.start_btn.setEnabled(True)
+
+
+```
+
+# MOTEUR/scraping/widgets/profile_widget.py
+Description: Source code for MOTEUR/scraping/widgets/profile_widget.py
+```python
+from PySide6.QtWidgets import (
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QListWidget,
+    QLineEdit,
+    QPushButton,
+    QLabel,
+)
+from PySide6.QtCore import Signal, Slot, QTimer
+
+from .. import profile_manager as pm
+from ..bus.event_bus import bus
+
+
+class ProfileWidget(QWidget):
+    """Widget to manage scraping profiles."""
+
+    profile_chosen = Signal(str)
+    profiles_updated = Signal()
+
+    def __init__(self) -> None:
+        super().__init__()
+
+        self.profile_list = QListWidget()
+        self.profile_list.itemSelectionChanged.connect(self._on_profile_selected)
+
+        self.name_edit = QLineEdit()
+        self.selector_edit = QLineEdit()
+        self.selector_edit.setText(
+            ".woocommerce-product-gallery__image a"
+        )
+
+        self.add_btn = QPushButton("Ajouter")
+        self.add_btn.clicked.connect(self._add_profile)
+        self.update_btn = QPushButton("Modifier")
+        self.update_btn.clicked.connect(self._update_profile)
+        self.delete_btn = QPushButton("Supprimer")
+        self.delete_btn.clicked.connect(self._delete_profile)
+
+        form_layout = QVBoxLayout()
+        form_layout.addWidget(QLabel("Nom:"))
+        form_layout.addWidget(self.name_edit)
+        form_layout.addWidget(QLabel("Sélecteur CSS:"))
+        form_layout.addWidget(self.selector_edit)
+
+        btn_layout = QHBoxLayout()
+        btn_layout.addWidget(self.add_btn)
+        btn_layout.addWidget(self.update_btn)
+        btn_layout.addWidget(self.delete_btn)
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel("Profils existants:"))
+        layout.addWidget(self.profile_list)
+        layout.addLayout(form_layout)
+        layout.addLayout(btn_layout)
+
+        self._load_profiles()
+
+        # watch for external profile changes
+        bus.profiles_changed.connect(self._load_profiles)
+
+        self._mtime = pm.PROFILES_FILE.stat().st_mtime if pm.PROFILES_FILE.exists() else 0
+        self._timer = QTimer(self)
+        self._timer.setInterval(2500)
+        self._timer.timeout.connect(self._check_profiles_file)
+        self._timer.start()
+
+    # ------------------------------------------------------------------
+    def _load_profiles(self) -> None:
+        """Load profiles from :mod:`profile_manager` and populate the list."""
+        self.profiles = pm.load_profiles()
+        self._refresh_list()
+
+    def _refresh_list(self) -> None:
+        self.profile_list.clear()
+        for profile in self.profiles:
+            self.profile_list.addItem(profile.get("name", ""))
+
+    @Slot()
+    def _on_profile_selected(self) -> None:
+        current = self.profile_list.currentRow()
+        if current < 0 or current >= len(self.profiles):
+            return
+        profile = self.profiles[current]
+        self.name_edit.setText(profile.get("name", ""))
+        self.selector_edit.setText(profile.get("selector", ""))
+        self.profile_chosen.emit(profile.get("name", ""))
+
+    @Slot()
+    def _add_profile(self) -> None:
+        name = self.name_edit.text().strip()
+        selector = self.selector_edit.text().strip()
+        if not name or not selector:
+            return
+        try:
+            pm.add_profile(name, selector)
+        except ValueError:
+            return
+        self._load_profiles()
+        self.profiles_updated.emit()
+
+    @Slot()
+    def _update_profile(self) -> None:
+        name = self.name_edit.text().strip()
+        selector = self.selector_edit.text().strip()
+        if not name or not selector:
+            return
+        if pm.update_profile(name, selector):
+            self._load_profiles()
+
+    @Slot()
+    def _delete_profile(self) -> None:
+        current = self.profile_list.currentRow()
+        if current < 0 or current >= len(self.profiles):
+            return
+        name = self.profiles[current].get("name", "")
+        if pm.delete_profile(name):
+            self._load_profiles()
+            self.profiles_updated.emit()
+
+    # ------------------------------------------------------------------
+    def _check_profiles_file(self) -> None:
+        p = pm.PROFILES_FILE
+        try:
+            m = p.stat().st_mtime
+            if m != self._mtime:
+                self._mtime = m
+                self._load_profiles()
+        except Exception:
+            pass
+
+```
+
+# MOTEUR/scraping/widgets/scrap_widget.py
+Description: Source code for MOTEUR/scraping/widgets/scrap_widget.py
+```python
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QTabWidget
+
+from .image_widget import ImageScraperWidget
+from .history_widget import HistoryWidget
+from .woocommerce_widget import WooCommerceProductWidget
+from .storage_widget import StorageWidget
+from .flask_server_widget import FlaskServerWidget
+
+
+class _DummySubWidget(QWidget):
+    def __init__(self) -> None:
+        super().__init__()
+        layout = QVBoxLayout(self)
+
+    def set_selected_profile(self, profile: str) -> None:
+        pass
+
+    def refresh_profiles(self) -> None:
+        pass
+
+
+class ScrapWidget(QWidget):
+    def __init__(self) -> None:
+        super().__init__()
+        self.modules_order = [
+            "images",
+            "combined",
+            "flask",
+            "history",
+            "woocommerce",
+            "stockage",
+        ]
+        self.storage_widget = StorageWidget()
+        self.images_widget = ImageScraperWidget(storage_widget=self.storage_widget)
+        self.combined_widget = _DummySubWidget()
+        self.flask_widget = FlaskServerWidget()
+        self.history_widget = HistoryWidget()
+        self.woocommerce_widget = WooCommerceProductWidget(
+            storage_widget=self.storage_widget
+        )
+        self.tabs = QTabWidget()
+        self.tabs.addTab(self.images_widget, "Images")
+        self.tabs.addTab(self.combined_widget, "Combined")
+        self.tabs.addTab(self.flask_widget, "Serveur Flask")
+        self.tabs.addTab(self.history_widget, "Historique")
+        self.tabs.addTab(self.woocommerce_widget, "Fiche Produit WooCommerce")
+        self.tabs.addTab(self.storage_widget, "Stockage")
+        layout = QVBoxLayout(self)
+        layout.addWidget(self.tabs)
+
+    def toggle_module(self, name: str, enabled: bool) -> None:
+        pass
+
+    def set_rename(self, enabled: bool) -> None:
+        pass
+
+```
+
+# MOTEUR/scraping/widgets/settings_widget.py
+Description: Source code for MOTEUR/scraping/widgets/settings_widget.py
+```python
+from __future__ import annotations
+
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QPushButton, QMessageBox
+from PySide6.QtCore import Signal, Slot, QCoreApplication
+from PySide6.QtWidgets import QApplication
+
+from .flask_server_widget import FlaskServerWidget  # pour introspection douce
+from ..utils.restart import relaunch_current_process
+
+class ScrapingSettingsWidget(QWidget):
+    module_toggled = Signal(str, bool)
+    rename_toggled = Signal(bool)
+
+    def __init__(self, modules_order=None):
+        super().__init__()
+        layout = QVBoxLayout(self)
+
+        self.btn_update = QPushButton("Mettre à jour depuis GitHub")
+        self.btn_restart = QPushButton("Redémarrer l’application")
+
+        layout.addWidget(self.btn_update)
+        layout.addWidget(self.btn_restart)
+        layout.addStretch(1)
+
+        self.btn_restart.clicked.connect(self._on_restart_clicked)
+        # NOTE: btn_update reste inchangé ici (placeholder)
+
+    # ------------------------------------------------------------------
+    def _find_flask_widgets(self) -> list[FlaskServerWidget]:
+        """Retourne tous les FlaskServerWidget présents dans l'app (best effort)."""
+        app = QApplication.instance()
+        if not app:
+            return []
+        found = []
+        for w in app.allWidgets():
+            try:
+                if isinstance(w, FlaskServerWidget):
+                    found.append(w)
+            except Exception:
+                pass
+        return found
+
+    @Slot()
+    def _on_restart_clicked(self) -> None:
+        reply = QMessageBox.question(
+            self,
+            "Redémarrer",
+            "Voulez-vous vraiment redémarrer l’application ?\n"
+            "Les opérations en cours seront arrêtées.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+
+        # Arrêt propre des serveurs Flask/ngrok si présents
+        try:
+            for fw in self._find_flask_widgets():
+                try:
+                    fw._stop()  # utilise la méthode existante du widget
+                    print("[restart] Serveur Flask/ngrok arrêté.")
+                except Exception as e:
+                    print(f"[restart] Impossible d’arrêter Flask: {e}")
+        except Exception as e:
+            print(f"[restart] Recherche des widgets Flask échouée: {e}")
+
+        # Relance du process puis fermeture de l’actuel
+        print("[restart] Relance de l’application…")
+        relaunch_current_process(delay_sec=0.2)
+        QCoreApplication.quit()
+```
+
+# MOTEUR/scraping/widgets/storage_widget.py
+Description: Source code for MOTEUR/scraping/widgets/storage_widget.py
+```python
+from PySide6.QtWidgets import (
+    QWidget,
+    QVBoxLayout,
+    QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
+)
+from PySide6.QtCore import Slot
+
+
+class StorageWidget(QWidget):
+    """Simple table to store scraped product names and variants."""
+
+    HEADERS = ["Nom du produit", "Variantes"]
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.table = QTableWidget(0, len(self.HEADERS))
+        self.table.setHorizontalHeaderLabels(self.HEADERS)
+
+        self.clear_btn = QPushButton("Vider le stockage")
+        self.clear_btn.clicked.connect(self.clear)
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(self.table)
+        layout.addWidget(self.clear_btn)
+
+    # ------------------------------------------------------------------
+    def add_product(self, name: str, variants: list[str]) -> None:
+        row = self.table.rowCount()
+        self.table.insertRow(row)
+        self.table.setItem(row, 0, QTableWidgetItem(name))
+        self.table.setItem(row, 1, QTableWidgetItem(", ".join(variants)))
+
+    def get_products(self) -> list[dict[str, list[str]]]:
+        products: list[dict[str, list[str]]] = []
+        for row in range(self.table.rowCount()):
+            name_item = self.table.item(row, 0)
+            variants_item = self.table.item(row, 1)
+            name = name_item.text() if name_item else ""
+            variants_text = variants_item.text() if variants_item else ""
+            variants = [v.strip() for v in variants_text.split(",") if v.strip()]
+            products.append({"name": name, "variants": variants})
+        return products
+
+    @Slot()
+    def clear(self) -> None:
+        self.table.setRowCount(0)
+```
+
+# MOTEUR/scraping/widgets/woocommerce_widget.py
+Description: Source code for MOTEUR/scraping/widgets/woocommerce_widget.py
+```python
+from __future__ import annotations
+
+from PySide6.QtWidgets import (
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
+    QFileDialog,
+    QAbstractItemView,
+    QCheckBox,
+)
+from PySide6.QtCore import Slot
+import csv
+import random
+import string
+import re
+import unicodedata
+from pathlib import Path
+import requests
+
+
+class WooCommerceProductWidget(QWidget):
+    """Widget to edit WooCommerce product data in a table."""
+
+    HEADERS = [
+        "ID",
+        "Type",
+        "SKU",
+        "Name",
+        "Published",
+        "Short description",
+        "Description",
+        "Regular price",
+        "Sale price",
+        "Categories",
+        "Tags",
+        "Images",
+        "In stock?",
+        "Stock",
+        "Tax status",
+        "Shipping class",
+        "Attribute 1 name",
+        "Attribute 1 value(s)",
+        "Attribute 1 visible",
+        "Attribute 1 global",
+    ]
+
+    # Folder containing downloaded product images. Tests monkeypatch this path.
+    IMAGES_ROOT = Path("images")
+
+    # Base URL for uploaded WooCommerce images.
+    BASE_IMAGE_URL = "https://www.planetebob.fr/wp-content/uploads/2025/07/"
+
+    @staticmethod
+    def _slugify(text: str) -> str:
+        text = unicodedata.normalize("NFKD", text)
+        text = text.encode("ascii", "ignore").decode("ascii")
+        text = re.sub(r"[^a-zA-Z0-9\s-]", "", text)
+        text = re.sub(r"[\s_-]+", "-", text).strip("-")
+        return text.lower()
+
+    @staticmethod
+    def _clean_image_urls(urls: list[str]) -> list[str]:
+        """Remove duplicate image URLs using exact and prefix based checks."""
+        # Remove exact duplicates first
+        unique_urls = list(set(urls))
+
+        prefix_set: set[str] = set()
+        final_images: list[str] = []
+
+        for url in sorted(unique_urls):
+            filename = url.split("/")[-1]
+            prefix = filename.split("_")[0].split("-56cm")[0]
+
+            if prefix not in prefix_set:
+                final_images.append(url)
+                prefix_set.add(prefix)
+
+        return final_images
+
+    def __init__(self, *, storage_widget=None) -> None:
+        super().__init__()
+        self.storage_widget = storage_widget
+        self.table = QTableWidget(0, len(self.HEADERS))
+        self.table.setHorizontalHeaderLabels(self.HEADERS)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+
+        add_btn = QPushButton("Ajouter une ligne")
+        del_btn = QPushButton("Supprimer la ligne sélectionnée")
+        fill_btn = QPushButton("Remplir")
+        check_btn = QPushButton("Vérifier URLs")
+        import_btn = QPushButton("Importer CSV")
+        export_btn = QPushButton("Exporter CSV")
+
+        add_btn.clicked.connect(self.add_row)
+        del_btn.clicked.connect(self.delete_selected_row)
+        fill_btn.clicked.connect(self.fill_from_storage)
+        check_btn.clicked.connect(self.check_urls)
+        import_btn.clicked.connect(self.import_csv)
+        export_btn.clicked.connect(self.export_csv)
+
+        btn_layout = QHBoxLayout()
+        btn_layout.addWidget(add_btn)
+        btn_layout.addWidget(del_btn)
+        btn_layout.addWidget(fill_btn)
+        btn_layout.addWidget(check_btn)
+        btn_layout.addStretch()
+        btn_layout.addWidget(import_btn)
+        btn_layout.addWidget(export_btn)
+
+        self.clean_images_checkbox = QCheckBox("Nettoyer les images dupliquées")
+        self.clean_images_checkbox.setChecked(True)
+
+        layout = QVBoxLayout(self)
+        layout.addLayout(btn_layout)
+        layout.addWidget(self.clean_images_checkbox)
+        layout.addWidget(self.table)
+
+    # ------------------------------------------------------------------
+    @Slot()
+    def add_row(self) -> None:
+        row = self.table.rowCount()
+        self.table.insertRow(row)
+        for col in range(self.table.columnCount()):
+            self.table.setItem(row, col, QTableWidgetItem(""))
+
+    @Slot()
+    def delete_selected_row(self) -> None:
+        row = self.table.currentRow()
+        if row >= 0:
+            self.table.removeRow(row)
+
+    @Slot()
+    def import_csv(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Importer CSV", "", "CSV Files (*.csv);;All Files (*)"
+        )
+        if not path:
+            return
+        try:
+            with open(path, newline="", encoding="utf-8") as f:
+                reader = csv.reader(f, delimiter="\t")
+                rows = list(reader)
+        except Exception:
+            return
+        if not rows:
+            return
+        start = 1 if rows[0][: len(self.HEADERS)] == self.HEADERS else 0
+        for data in rows[start:]:
+            row = self.table.rowCount()
+            self.table.insertRow(row)
+            for col in range(len(self.HEADERS)):
+                value = data[col] if col < len(data) else ""
+                self.table.setItem(row, col, QTableWidgetItem(value))
+
+    @Slot()
+    def export_csv(self) -> None:
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Exporter CSV", "", "CSV Files (*.csv);;All Files (*)"
+        )
+        if not path:
+            return
+        with open(path, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f, delimiter=";")
+            writer.writerow(self.HEADERS)
+            for row in range(self.table.rowCount()):
+                data = []
+                for col in range(self.table.columnCount()):
+                    item = self.table.item(row, col)
+                    data.append(item.text() if item else "")
+                writer.writerow(data)
+
+    @Slot()
+    def check_urls(self) -> None:
+        """Check that image URLs in the table are reachable and export a CSV."""
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Exporter résultat", "", "CSV Files (*.csv);;All Files (*)"
+        )
+        if not path:
+            return
+
+        img_col = self.HEADERS.index("Images")
+        urls: list[str] = []
+        for row in range(self.table.rowCount()):
+            item = self.table.item(row, img_col)
+            if not item:
+                continue
+            urls.extend(u.strip() for u in item.text().split(", ") if u.strip())
+
+        results: list[tuple[str, str]] = []
+        for url in urls:
+            try:
+                resp = requests.head(url, timeout=5)
+                ok = resp.status_code == 200
+            except Exception:
+                ok = False
+            results.append((url, "oui" if ok else "non"))
+
+        with open(path, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f, delimiter=";")
+            writer.writerow(["URL", "OK"])
+            writer.writerows(results)
+
+    # ------------------------------------------------------------------
+    @Slot()
+    def fill_from_storage(self) -> None:
+        """Create new rows from the linked storage widget."""
+        if not self.storage_widget:
+            return
+        products = self.storage_widget.get_products()
+        # Clear any previously populated rows before filling again so
+        # repeated calls don't accumulate duplicates.
+        self.table.setRowCount(0)
+        type_col = self.HEADERS.index("Type")
+        sku_col = self.HEADERS.index("SKU")
+        name_col = self.HEADERS.index("Name")
+        img_col = self.HEADERS.index("Images")
+
+        used_skus: set[str] = set()
+
+        def _gen_sku() -> str:
+            """Generate a unique random SKU."""
+            while True:
+                sku = "SKU-" + "".join(
+                    random.choices(string.ascii_uppercase + string.digits, k=8)
+                )
+                if sku not in used_skus:
+                    used_skus.add(sku)
+                    return sku
+
+        for prod in products:
+            product_name = prod["name"]
+            variants = prod["variants"]
+            product_slug = self._slugify(product_name)
+            folder = self.IMAGES_ROOT / product_name
+            local_images: list[str] = []
+            if folder.is_dir():
+                for p in sorted(folder.iterdir()):
+                    if p.suffix.lower() in {".webp", ".jpg", ".jpeg", ".png"}:
+                        local_images.append(p.name)
+
+            variant_files = [
+                f"{product_slug}-{self._slugify(v)}.jpg" for v in variants
+            ]
+            generic_images = [img for img in local_images if img not in variant_files]
+
+            is_variable = len(variants) > 1
+
+            if is_variable:
+                row = self.table.rowCount()
+                self.table.insertRow(row)
+                for col in range(self.table.columnCount()):
+                    self.table.setItem(row, col, QTableWidgetItem(""))
+
+                parent_sku = _gen_sku()
+                self.table.setItem(row, type_col, QTableWidgetItem("variable"))
+                self.table.setItem(row, sku_col, QTableWidgetItem(parent_sku))
+                self.table.setItem(row, name_col, QTableWidgetItem(product_name))
+                parent_images = [
+                    self.BASE_IMAGE_URL + img for img in generic_images + variant_files
+                ]
+                if self.clean_images_checkbox.isChecked():
+                    parent_images = self._clean_image_urls(parent_images)
+                if parent_images:
+                    self.table.setItem(
+                        row,
+                        img_col,
+                        QTableWidgetItem(", ".join(parent_images)),
+                    )
+
+                current_row = row
+                for variant in variants:
+                    current_row += 1
+                    self.table.insertRow(current_row)
+                    for c in range(self.table.columnCount()):
+                        self.table.setItem(current_row, c, QTableWidgetItem(""))
+                    self.table.setItem(current_row, type_col, QTableWidgetItem("variation"))
+                    var_slug = self._slugify(variant)
+                    sku_var = f"{parent_sku}-{var_slug}"
+                    used_skus.add(sku_var)
+                    name_var = f"{product_name} {variant}"
+                    self.table.setItem(current_row, sku_col, QTableWidgetItem(sku_var))
+                    self.table.setItem(current_row, name_col, QTableWidgetItem(name_var))
+                    var_img = self.BASE_IMAGE_URL + f"{product_slug}-{var_slug}.jpg"
+                self.table.setItem(current_row, img_col, QTableWidgetItem(var_img))
+            else:
+                row = self.table.rowCount()
+                self.table.insertRow(row)
+                for col in range(self.table.columnCount()):
+                    self.table.setItem(row, col, QTableWidgetItem(""))
+
+                sku_val = _gen_sku()
+                self.table.setItem(row, type_col, QTableWidgetItem("simple"))
+                self.table.setItem(row, sku_col, QTableWidgetItem(sku_val))
+                self.table.setItem(row, name_col, QTableWidgetItem(product_name))
+                images = [self.BASE_IMAGE_URL + img for img in generic_images + variant_files]
+                if self.clean_images_checkbox.isChecked():
+                    images = self._clean_image_urls(images)
+                if images:
+                    self.table.setItem(
+                        row,
+                        img_col,
+                        QTableWidgetItem(", ".join(images)),
+                    )
+
+
+```
+
+# README_flask_bridge.md
+Description: Flask Bridge
+```
+# Flask Bridge
+
+Ce module ajoute un petit serveur Flask permettant de piloter le scraping à
+l'aide d'appels HTTP.  Il peut être lancé depuis l'onglet **Serveur Flask** de
+l'application.
+
+## Démarrage
+1. Lancez l'application graphique `app.py`.
+2. Rendez-vous dans l'onglet *Serveur Flask*.
+3. Choisissez un port et une clé API puis cliquez sur **Démarrer**.
+4. Optionnel : cochez *Expose via ngrok* pour obtenir une URL publique.
+
+L'API key est également lue depuis la variable d'environnement
+``SCRAPER_API_KEY``.  Pour ngrok, la variable ``NGROK_AUTHTOKEN`` est prise en
+compte si aucun jeton n'est saisi.
+
+## Test de l'API
+Une fois le serveur lancé, l'endpoint `/health` répond sans authentification.
+
+```bash
+# Exemples de commandes curl
+# curl http://localhost:5001/health
+# curl -X POST -H "Content-Type: application/json" -H "X-API-KEY: VOTRE_CLE" \
+#      -d '{"url": "https://exemple.com", "selector": "img"}' \
+#      http://localhost:5001/scrape
+# curl -H "X-API-KEY: VOTRE_CLE" http://localhost:5001/jobs/<job_id>
+```
+
+Les réponses pour les autres endpoints (`/scrape`, `/jobs`, `/profiles`,
+`/history`) nécessitent le header `X-API-KEY`.
+```
+
+# app.py
+Description: Source code for app.py
+```python
+
+```
+
+# localapp/__init__.py
+Description: Source code for localapp/__init__.py
+```python
+
+```
+
+# localapp/app.py
+Description: Source code for localapp/app.py
+```python
+from pathlib import Path
+import sys
+
+# Allow running this module directly by ensuring the project root is in
+# ``sys.path``.  When executed with ``python localapp/app.py`` the Python
+# interpreter only adds the ``localapp`` directory to ``sys.path`` which
+# prevents imports from the sibling ``MOTEUR`` package.  Adding the parent
+# directory resolves ``ModuleNotFoundError`` for these local imports.
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+try:
+    from PySide6.QtWidgets import (
+        QApplication,
+        QMainWindow,
+        QWidget,
+        QVBoxLayout,
+        QHBoxLayout,
+        QPushButton,
+        QLabel,
+        QStackedWidget,
+        QSizePolicy,
+        QMessageBox,
+        QFrame,
+        QScrollArea,
+    )
+    from PySide6.QtCore import Qt, QPropertyAnimation, Slot, QEasingCurve
+    from PySide6.QtGui import QIcon
+except ModuleNotFoundError:
+    print("Install dependencies with pip install -r requirements.txt")
+    sys.exit(1)
+
+from MOTEUR.scraping.widgets.scrap_widget import ScrapWidget
+from MOTEUR.scraping.widgets.settings_widget import ScrapingSettingsWidget
+from MOTEUR.compta.achats.widget import AchatWidget
+from MOTEUR.compta.ventes.widget import VenteWidget
+from MOTEUR.compta.accounting.widget import AccountWidget
+from MOTEUR.scraping.widgets.profile_widget import ProfileWidget
+from MOTEUR.compta.dashboard.widget import DashboardWidget
+import subprocess
+
+BASE_DIR = Path(__file__).resolve().parent
+
+
+class SidebarButton(QPushButton):
+    """Custom button used in the vertical sidebar."""
+
+    def __init__(self, text: str, icon_path: str | None = None) -> None:
+        super().__init__(text)
+        if icon_path:
+            self.setIcon(QIcon(icon_path))
+        self.setStyleSheet(
+            """
+            QPushButton {
+                padding: 10px;
+                border: none;
+                background-color: #f0f0f0;
+                color: #333;
+                text-align: left;
+            }
+            QPushButton:hover {
+                background-color: #d0d0d0;
+            }
+            QPushButton:checked {
+                background-color: #c0c0c0;
+                font-weight: bold;
+            }
+            """
+        )
+        self.setCheckable(True)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+
+
+class CollapsibleSection(QWidget):
+    """Section with a header button that can show or hide its content."""
+
+    def __init__(
+        self,
+        title: str,
+        parent: QWidget | None = None,
+        *,
+        hide_title_when_collapsed: bool = False,
+    ) -> None:
+        super().__init__(parent)
+        self.original_title = title
+        self.hide_title_when_collapsed = hide_title_when_collapsed
+        self.toggle_button = QPushButton(title)
+        self.toggle_button.setCheckable(True)
+        self.toggle_button.setChecked(False)
+        self.toggle_button.setStyleSheet(
+            """
+            QPushButton {
+                background-color: #444;
+                color: white;
+                padding: 10px;
+                text-align: left;
+                font-weight: bold;
+            }
+            QPushButton:checked {
+                background-color: #666;
+            }
+            """
+        )
+
+        self.content_area = QWidget()
+        self.content_area.setMaximumHeight(0)
+        self.content_area.setSizePolicy(
+            QSizePolicy.Expanding,
+            QSizePolicy.Fixed,
+        )
+
+        self.toggle_animation = QPropertyAnimation(
+            self.content_area,
+            b"maximumHeight",
+        )
+        self.toggle_animation.setDuration(300)
+        self.toggle_animation.setEasingCurve(QEasingCurve.InOutCubic)
+        self.toggle_animation.setStartValue(0)
+        self.toggle_animation.setEndValue(0)
+
+        self.toggle_button.clicked.connect(self.toggle)
+        if (
+            self.hide_title_when_collapsed
+            and not self.toggle_button.isChecked()
+        ):
+            self.toggle_button.setText("")
+
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.addWidget(self.toggle_button)
+        main_layout.addWidget(self.content_area)
+
+        self.inner_layout = QVBoxLayout()
+        self.inner_layout.setContentsMargins(0, 0, 0, 0)
+        self.inner_layout.setSpacing(0)
+        self.content_area.setLayout(self.inner_layout)
+
+    def toggle(self) -> None:
+        checked = self.toggle_button.isChecked()
+        total_height = self.content_area.sizeHint().height()
+        self.toggle_animation.setDirection(
+            QPropertyAnimation.Forward
+            if checked
+            else QPropertyAnimation.Backward
+        )
+        self.toggle_animation.setEndValue(total_height if checked else 0)
+        self.toggle_animation.start()
+        if self.hide_title_when_collapsed:
+            self.toggle_button.setText(self.original_title if checked else "")
+
+    def collapse(self) -> None:
+        if self.toggle_button.isChecked():
+            self.toggle_button.setChecked(False)
+            self.toggle()
+
+    def expand(self) -> None:
+        if not self.toggle_button.isChecked():
+            self.toggle_button.setChecked(True)
+            self.toggle()
+
+    def add_widget(self, widget: QWidget) -> None:
+        self.inner_layout.addWidget(widget)
+
+
+class MainWindow(QMainWindow):
+    """Main application window with a sidebar and central stack."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.setWindowTitle("COMPTA - Interface de gestion comptable")
+        self.setMinimumSize(1200, 700)
+
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+
+        main_layout = QHBoxLayout(central_widget)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+
+        sidebar_container = QWidget()
+        sidebar_layout = QVBoxLayout(sidebar_container)
+        sidebar_layout.setContentsMargins(0, 0, 0, 0)
+        sidebar_layout.setSpacing(0)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll_content = QWidget()
+        nav_layout = QVBoxLayout(scroll_content)
+        nav_layout.setContentsMargins(0, 0, 0, 0)
+        nav_layout.setSpacing(0)
+        scroll.setWidget(scroll_content)
+
+        sidebar_container.setStyleSheet("background-color: #ffffff;")
+        scroll_content.setStyleSheet("background-color: #ffffff;")
+
+        self.button_group: list[SidebarButton] = []
+        self.compta_buttons: dict[str, SidebarButton] = {}
+
+        self.compta_section = CollapsibleSection(
+            "\ud83d\udcc1 Comptabilit\u00e9", hide_title_when_collapsed=False
+        )
+        compta_icons = {
+            "Tableau de bord": BASE_DIR / "icons" / "dashboard.svg",
+            "Journal": BASE_DIR / "icons" / "journal.svg",
+            "Grand Livre": BASE_DIR / "icons" / "grand_livre.svg",
+            "Bilan": BASE_DIR / "icons" / "bilan.svg",
+            "Résultat": BASE_DIR / "icons" / "resultat.svg",
+            "Comptes": BASE_DIR / "icons" / "journal.svg",
+            "Révision": BASE_DIR / "icons" / "bilan.svg",
+            "Paramètres": BASE_DIR / "icons" / "settings.svg",
+            "Achat": BASE_DIR / "icons" / "achat.svg",
+            "Fournisseurs": BASE_DIR / "icons" / "achat.svg",
+            "Ventes": BASE_DIR / "icons" / "ventes.svg",
+        }
+        for name in compta_icons:
+            btn = SidebarButton(name, icon_path=str(compta_icons[name]))
+            self.compta_buttons[name] = btn
+            if name == "Tableau de bord":
+                self.dashboard_btn = btn
+                btn.clicked.connect(
+                    lambda _, b=btn: self.show_dashboard_page(b)
+                )
+            elif name == "Achat":
+                self.achat_btn = btn
+                btn.clicked.connect(
+                    lambda _, b=btn: self.show_achat_page(b)
+                )
+            elif name == "Fournisseurs":
+                self.suppliers_btn = btn
+                btn.clicked.connect(
+                    lambda _, b=btn: self.show_suppliers_page(b)
+                )
+            elif name == "Comptes":
+                self.accounts_btn = btn
+                btn.clicked.connect(
+                    lambda _, b=btn: self.show_accounts_page(b)
+                )
+            elif name == "Révision":
+                self.revision_btn = btn
+                btn.clicked.connect(
+                    lambda _, b=btn: self.show_revision_page(b)
+                )
+            elif name == "Paramètres":
+                self.param_journals_btn = btn
+                btn.clicked.connect(
+                    lambda _, b=btn: self.show_journals_page(b)
+                )
+            elif name == "Ventes":
+                self.ventes_btn = btn
+                btn.clicked.connect(
+                    lambda _, b=btn: self.show_ventes_page(b)
+                )
+            else:
+                btn.clicked.connect(
+                    lambda _, n=name, b=btn: self.display_content(
+                        f"Comptabilité : {n}", b
+                    )
+                )
+            self.compta_section.add_widget(btn)
+            self.button_group.append(btn)
+        nav_layout.addWidget(self.compta_section)
+
+        self.scrap_section = CollapsibleSection("\ud83d\udee0 Scraping")
+
+        self.profiles_btn = SidebarButton(
+            "Profil Scraping",
+            icon_path=str(BASE_DIR / "icons" / "profile.svg"),
+        )
+        self.profiles_btn.clicked.connect(
+            lambda _, b=self.profiles_btn: self.show_profiles(b)
+        )
+        self.scrap_section.add_widget(self.profiles_btn)
+        self.button_group.append(self.profiles_btn)
+
+        self.scrap_btn = SidebarButton(
+            "Scrap",
+            icon_path=str(BASE_DIR / "icons" / "scraping.svg"),
+        )
+        self.scrap_btn.clicked.connect(
+            lambda _, b=self.scrap_btn: self.show_scrap_page(b)
+        )
+        self.scrap_section.add_widget(self.scrap_btn)
+        self.button_group.append(self.scrap_btn)
+
+        btn = SidebarButton(
+            "Scraping Descriptions",
+            icon_path=str(BASE_DIR / "icons" / "text.svg"),
+        )
+        btn.clicked.connect(
+            lambda _, b=btn: self.display_content("Scraping : Descriptions", b)
+        )
+        self.scrap_section.add_widget(btn)
+        self.button_group.append(btn)
+
+        self.scrap_settings_btn = SidebarButton(
+            "Paramètres Scraping",
+            icon_path=str(BASE_DIR / "icons" / "settings.svg"),
+        )
+        self.scrap_settings_btn.clicked.connect(
+            lambda _, b=self.scrap_settings_btn: self.show_scraping_settings_page(b)
+        )
+        self.scrap_section.add_widget(self.scrap_settings_btn)
+        self.button_group.append(self.scrap_settings_btn)
+        nav_layout.addWidget(self.scrap_section)
+
+        # Collapse the other section when one is expanded
+        self.compta_section.toggle_button.clicked.connect(
+            lambda: self._collapse_other(self.compta_section)
+        )
+        self.scrap_section.toggle_button.clicked.connect(
+            lambda: self._collapse_other(self.scrap_section)
+        )
+
+        nav_layout.addStretch()
+
+        sidebar_layout.addWidget(scroll)
+
+        line = QFrame()
+        line.setFrameShape(QFrame.HLine)
+        line.setStyleSheet("margin:5px 0;")
+        sidebar_layout.addWidget(line)
+
+        self.settings_btn = SidebarButton(
+            "\u2699\ufe0f Paramètres",
+            icon_path=str(BASE_DIR / "icons" / "settings.svg"),
+        )
+        self.settings_btn.clicked.connect(self.show_settings)
+        sidebar_layout.addWidget(self.settings_btn)
+        self.button_group.append(self.settings_btn)
+
+        self.stack = QStackedWidget()
+        self.stack.addWidget(
+            QLabel("Bienvenue sur COMPTA", alignment=Qt.AlignCenter)
+        )
+
+        self.profile_page = ProfileWidget()
+        self.stack.addWidget(self.profile_page)
+
+        self.scrap_page = ScrapWidget()
+        self.stack.addWidget(self.scrap_page)
+
+        self.scraping_settings_page = ScrapingSettingsWidget(
+            self.scrap_page.modules_order
+        )
+        self.scraping_settings_page.module_toggled.connect(
+            self.scrap_page.toggle_module
+        )
+        self.scraping_settings_page.rename_toggled.connect(
+            self.scrap_page.set_rename
+        )
+        self.stack.addWidget(self.scraping_settings_page)
+
+        self.profile_page.profile_chosen.connect(
+            self.scrap_page.images_widget.set_selected_profile
+        )
+        self.profile_page.profiles_updated.connect(
+            self.scrap_page.images_widget.refresh_profiles
+        )
+        self.profile_page.profile_chosen.connect(
+            self.scrap_page.combined_widget.set_selected_profile
+        )
+        self.profile_page.profiles_updated.connect(
+            self.scrap_page.combined_widget.refresh_profiles
+        )
+
+        self.dashboard_page = DashboardWidget()
+        self.dashboard_page.journal_requested.connect(
+            lambda: self.open_from_dashboard("Journal")
+        )
+        self.dashboard_page.grand_livre_requested.connect(
+            lambda: self.open_from_dashboard("Grand Livre")
+        )
+        self.dashboard_page.scraping_summary_requested.connect(
+            lambda: self.show_scrap_page(self.scrap_btn)
+        )
+        self.stack.addWidget(self.dashboard_page)
+
+        self.achat_page = AchatWidget()
+        self.stack.addWidget(self.achat_page)
+
+        from MOTEUR.compta.suppliers import SupplierTab
+
+        self.suppliers_page = SupplierTab()
+        self.stack.addWidget(self.suppliers_page)
+
+        self.accounts_page = AccountWidget()
+        self.accounts_page.accounts_updated.connect(
+            self.achat_page.refresh_accounts
+        )
+        self.stack.addWidget(self.accounts_page)
+
+        from MOTEUR.compta.parameters import JournalsWidget
+
+        self.journals_page = JournalsWidget()
+        self.stack.addWidget(self.journals_page)
+
+        from MOTEUR.compta.revision import RevisionTab
+
+        self.revision_page = RevisionTab()
+        self.stack.addWidget(self.revision_page)
+
+        self.ventes_page = VenteWidget()
+        self.stack.addWidget(self.ventes_page)
+
+        self.settings_page = QWidget()
+        settings_layout = QVBoxLayout(self.settings_page)
+        title_label = QLabel(
+            "Paramètres \u2013 Maintenance du projet"
+        )
+        title_label.setAlignment(Qt.AlignCenter)
+        update_button = QPushButton(
+            "\ud83d\udd04 Mettre \u00e0 jour depuis GitHub"
+        )
+        update_button.clicked.connect(self.update_from_github)
+        refresh_button = QPushButton(
+            "\ud83d\udd04 Redémarrer l'application"
+        )
+        refresh_button.clicked.connect(self.refresh_scraping)
+        settings_layout.addStretch()
+        settings_layout.addWidget(title_label)
+        settings_layout.addWidget(update_button, alignment=Qt.AlignCenter)
+        settings_layout.addWidget(refresh_button, alignment=Qt.AlignCenter)
+        settings_layout.addStretch()
+        self.stack.addWidget(self.settings_page)
+
+        main_layout.addWidget(sidebar_container, 1)
+        main_layout.addWidget(self.stack, 4)
+
+    def clear_selection(self) -> None:
+        for btn in self.button_group:
+            btn.setChecked(False)
+
+    def _collapse_other(self, active: CollapsibleSection) -> None:
+        if active.toggle_button.isChecked():
+            other = (
+                self.scrap_section if active is self.compta_section else self.compta_section
+            )
+            other.collapse()
+
+    def display_content(self, text: str, button: SidebarButton) -> None:
+        self.clear_selection()
+        button.setChecked(True)
+        label = QLabel(text, alignment=Qt.AlignCenter)
+        self.stack.addWidget(label)
+        self.stack.setCurrentWidget(label)
+
+    def show_scrap_page(self, button: SidebarButton, tab_index: int = 0) -> None:
+        self.clear_selection()
+        button.setChecked(True)
+        try:
+            self.scrap_page.tabs.setCurrentIndex(tab_index)
+        except Exception:
+            pass
+        self.stack.setCurrentWidget(self.scrap_page)
+
+    def show_scraping_images(self, button: SidebarButton) -> None:
+        self.show_scrap_page(button, tab_index=0)
+
+    def show_scraping_variants(self, button: SidebarButton) -> None:
+        self.show_scrap_page(button, tab_index=1)
+
+    def show_profiles(self, button: SidebarButton) -> None:
+        self.clear_selection()
+        button.setChecked(True)
+        self.stack.setCurrentWidget(self.profile_page)
+
+    def show_dashboard_page(self, button: SidebarButton) -> None:
+        self.clear_selection()
+        button.setChecked(True)
+        self.dashboard_page.refresh()
+        self.stack.setCurrentWidget(self.dashboard_page)
+
+    def show_accounts_page(self, button: SidebarButton) -> None:
+        self.clear_selection()
+        button.setChecked(True)
+        self.stack.setCurrentWidget(self.accounts_page)
+
+    def show_revision_page(self, button: SidebarButton) -> None:
+        self.clear_selection()
+        button.setChecked(True)
+        self.stack.setCurrentWidget(self.revision_page)
+
+    def show_journals_page(self, button: SidebarButton) -> None:
+        self.clear_selection()
+        button.setChecked(True)
+        self.stack.setCurrentWidget(self.journals_page)
+
+    def show_achat_page(self, button: SidebarButton) -> None:
+        self.clear_selection()
+        button.setChecked(True)
+        self.stack.setCurrentWidget(self.achat_page)
+
+    def show_suppliers_page(self, button: SidebarButton) -> None:
+        self.clear_selection()
+        button.setChecked(True)
+        self.stack.setCurrentWidget(self.suppliers_page)
+
+    def show_scraping_settings_page(self, button: SidebarButton) -> None:
+        self.clear_selection()
+        button.setChecked(True)
+        self.stack.setCurrentWidget(self.scraping_settings_page)
+
+    def show_ventes_page(self, button: SidebarButton) -> None:
+        self.clear_selection()
+        button.setChecked(True)
+        self.stack.setCurrentWidget(self.ventes_page)
+
+    def open_from_dashboard(self, name: str) -> None:
+        btn = self.compta_buttons.get(name)
+        if btn:
+            self.display_content(f"Comptabilité : {name}", btn)
+
+    def show_settings(self) -> None:
+        self.clear_selection()
+        self.settings_btn.setChecked(True)
+        self.stack.setCurrentWidget(self.settings_page)
+
+    def update_from_github(self) -> None:
+        result = subprocess.run(
+            ["git", "pull", "origin", "main"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+
+        if result.returncode != 0:
+            QMessageBox.critical(
+                self,
+                "Mise à jour",
+                f"❌ Échec de mise à jour\n{result.stderr}",
+            )
+            return
+
+        logs = result.stdout.strip()
+        if "Already up to date" in logs or "Already up-to-date" in logs:
+            QMessageBox.information(self, "Mise à jour", logs)
+            return
+
+        QMessageBox.information(
+            self,
+            "Mise à jour",
+            f"✅ Mise à jour appliquée:\n{logs}\n\nL'application va redémarrer",
+        )
+        subprocess.Popen([sys.executable] + sys.argv)
+        QApplication.quit()
+
+    @Slot()
+    def refresh_scraping(self) -> None:
+        page = self.scrap_page.images_widget
+        page.start_btn.setEnabled(True)
+        page.console.clear()
+        page.progress_bar.setValue(0)
+        page.progress_bar.hide()
+        page.url_edit.clear()
+        page.folder_edit.clear()
+
+        QMessageBox.information(
+            self,
+            "Redémarrage",
+            "L'application va redémarrer pour appliquer les changements.",
+        )
+        subprocess.Popen([sys.executable] + sys.argv)
+        QApplication.quit()
+
+
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    interface = MainWindow()
+    interface.show()
+    sys.exit(app.exec())
+```
+
+# localapp/icons/achat.svg
+Description: Source code for localapp/icons/achat.svg
+```
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+</svg>
+```
+
+# localapp/icons/bilan.svg
+Description: Source code for localapp/icons/bilan.svg
+```
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+</svg>
+```
+
+# localapp/icons/dashboard.svg
+Description: Source code for localapp/icons/dashboard.svg
+```
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+</svg>
+```
+
+# localapp/icons/grand_livre.svg
+Description: Source code for localapp/icons/grand_livre.svg
+```
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+</svg>
+```
+
+# localapp/icons/journal.svg
+Description: Source code for localapp/icons/journal.svg
+```
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+</svg>
+```
+
+# localapp/icons/profile.svg
+Description: Source code for localapp/icons/profile.svg
+```
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+</svg>
+```
+
+# localapp/icons/resultat.svg
+Description: Source code for localapp/icons/resultat.svg
+```
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+</svg>
+```
+
+# localapp/icons/scraping.svg
+Description: Source code for localapp/icons/scraping.svg
+```
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+</svg>
+```
+
+# localapp/icons/settings.svg
+Description: Source code for localapp/icons/settings.svg
+```
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+</svg>
+```
+
+# localapp/icons/text.svg
+Description: Source code for localapp/icons/text.svg
+```
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+</svg>
+```
+
+# localapp/icons/ventes.svg
+Description: Source code for localapp/icons/ventes.svg
+```
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+</svg>
+```
+
+# requirements.txt
+Description: Source code for requirements.txt
+```
+PySide6
+pytest
+selenium
+requests
+openpyxl
+Flask
+pyngrok
+```
+
+# tests/manual_profiles_test.md
+Description: Manual Profiles Test
+```
+# Manual Profiles Test
+
+1. Lancer l'application Qt et démarrer le serveur Flask depuis l'onglet dédié.
+2. Depuis un terminal ou Postman, envoyer :
+   ```bash
+   curl -X POST https://<ngrok>.ngrok-free.app/profiles \
+        -H "X-API-KEY: <CLE>" -H "Content-Type: application/json" \
+        -d '{"name":"Test","selector":".img-class"}'
+   ```
+3. Vérifier que la réponse HTTP est `201` et que le profil "Test" apparaît immédiatement dans l'onglet Profil Scraping.
+4. Répéter la requête POST identique : la réponse doit être `409` et aucun doublon ne doit apparaître dans l'UI.
+5. Tester la route de liste :
+   ```bash
+   curl -X GET https://<ngrok>.ngrok-free.app/profiles -H "X-API-KEY: <CLE>"
+   ```
+   Le profil "Test" doit être présent dans le JSON retourné.
+```
+
+# tests/test_download_naming.py
+Description: Source code for tests/test_download_naming.py
+```python
+from pathlib import Path
+import sys
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from MOTEUR.scraping.image_scraper import _download
+import types
+
+class DummyResponse:
+    def __init__(self):
+        self.content = b'x' * 200
+        self.headers = {'Content-Type': 'image/png'}
+    def raise_for_status(self):
+        pass
+
+def test_download_name_cleanup(tmp_path, monkeypatch):
+    def fake_get(url, timeout=10):
+        return DummyResponse()
+    monkeypatch.setattr('MOTEUR.scraping.image_scraper.requests.get', fake_get)
+
+    url1 = 'http://example.com/bob-avec-lacet-409.jpg'
+    url2 = 'http://example.com/bob-avec-lacet-1023.jpg'
+    _download(url1, tmp_path)
+    _download(url2, tmp_path)
+
+    names = sorted(p.name for p in tmp_path.iterdir())
+    assert names == ['bob-avec-lacet.jpg', 'bob-avec-lacet_1.jpg']
+
+```
+
+# tests/test_image_scraper_widget.py
+Description: Source code for tests/test_image_scraper_widget.py
+```python
+from pathlib import Path
+import sys
+import os
+import pytest
+
+QtWidgets = pytest.importorskip("PySide6.QtWidgets")
+QApplication = QtWidgets.QApplication
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+from MOTEUR.scraping import profile_manager as pm
+from MOTEUR.scraping import history
+from MOTEUR.scraping.widgets.image_widget import ImageScraperWidget
+
+
+def test_scrape_logs_history(tmp_path, monkeypatch):
+    pm.PROFILES_FILE = tmp_path / "profiles.json"
+    history.HISTORY_FILE = tmp_path / "history.json"
+    history.LAST_USED_FILE = tmp_path / "last.json"
+    pm.save_profiles([{"name": "p1", "selector": ".a"}])
+
+    app = QApplication.instance() or QApplication([])
+    widget = ImageScraperWidget()
+    widget.refresh_profiles()
+    widget.set_selected_profile("p1")
+    urls_file = tmp_path / "urls.txt"
+    urls_file.write_text("http://example.com\nhttp://ex2.com\n")
+    widget.file_edit.setText(str(urls_file))
+    widget.folder_edit.setText(str(tmp_path))
+
+    monkeypatch.setattr(
+        "MOTEUR.scraping.widgets.image_widget.scrape_images",
+        lambda url, sel, folder: 5,
+    )
+
+    widget._start()
+
+    entries = history.load_history()
+    assert len(entries) == 2
+    assert entries[0]["url"] == "http://example.com"
+    assert entries[1]["url"] == "http://ex2.com"
+    assert all(e["profile"] == "p1" and e["images"] == 5 for e in entries)
+    widget.close()
+
+
+def test_export_excel(tmp_path, monkeypatch):
+    pm.PROFILES_FILE = tmp_path / "profiles.json"
+    pm.save_profiles([{"name": "p1", "selector": ".a"}])
+
+    app = QApplication.instance() or QApplication([])
+    widget = ImageScraperWidget()
+    widget.export_data = [
+        {"URL": "u1", "Variant": "v1", "Image": "img1"},
+        {"URL": "u2", "Variant": "v2", "Image": "img2"},
+    ]
+
+    out_file = tmp_path / "out.xlsx"
+
+    monkeypatch.setattr(
+        "MOTEUR.scraping.widgets.image_widget.QFileDialog.getSaveFileName",
+        lambda *a, **k: (str(out_file), "")
+    )
+    infos = []
+    monkeypatch.setattr(
+        "MOTEUR.scraping.widgets.image_widget.QMessageBox.information",
+        lambda *a, **k: infos.append(1)
+    )
+
+    widget._export_excel()
+
+    assert out_file.exists()
+    from openpyxl import load_workbook
+
+    wb = load_workbook(out_file)
+    ws = wb.active
+    data = list(ws.iter_rows(values_only=True))
+    assert data[1] == ("u1", "v1", "img1")
+    assert data[2] == ("u2", "v2", "img2")
+    widget.close()
+```
+
+# tests/test_mainwindow.py
+Description: Source code for tests/test_mainwindow.py
+```python
+import sys
+from pathlib import Path
+import pytest
+
+QtWidgets = pytest.importorskip("PySide6.QtWidgets")
+QApplication = QtWidgets.QApplication
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+import os
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+from localapp.app import MainWindow
+
+
+def test_mainwindow_creation():
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow()
+    assert window.windowTitle() == "COMPTA - Interface de gestion comptable"
+    window.close()
+```
+
+# tests/test_profile_manager.py
+Description: Source code for tests/test_profile_manager.py
+```python
+from pathlib import Path
+import sys
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+
+import pytest
+
+from MOTEUR.scraping import profile_manager as pm
+
+
+def test_load_profiles_empty(tmp_path: Path):
+    pm.PROFILES_FILE = tmp_path / "profiles.json"
+    assert pm.load_profiles() == []
+
+
+def test_add_update_delete_profile(tmp_path: Path):
+    pm.PROFILES_FILE = tmp_path / "profiles.json"
+
+    # Add a profile
+    pm.add_profile("test", ".selector")
+    profiles = pm.load_profiles()
+    assert profiles == [{"name": "test", "selector": ".selector"}]
+
+    # Update the profile
+    updated = pm.update_profile("test", "div.img")
+    assert updated is True
+    profiles = pm.load_profiles()
+    assert profiles[0]["selector"] == "div.img"
+
+    # Delete the profile
+    removed = pm.delete_profile("test")
+    assert removed is True
+    assert pm.load_profiles() == []
+
+    # Update/delete non-existing returns False
+    assert pm.update_profile("missing", "x") is False
+    assert pm.delete_profile("missing") is False
+
+
+def test_profile_persistence(tmp_path: Path):
+    """Profiles created via :mod:`profile_manager` should persist on disk."""
+    pm.PROFILES_FILE = tmp_path / "profiles.json"
+
+    pm.add_profile("persist", ".x")
+    # Reload from disk to verify persistence
+    new_list = pm.load_profiles()
+    assert new_list == [{"name": "persist", "selector": ".x"}]
+```
+
+# tests/test_profile_widget.py
+Description: Source code for tests/test_profile_widget.py
+```python
+from pathlib import Path
+import sys
+import os
+import pytest
+
+QtWidgets = pytest.importorskip("PySide6.QtWidgets")
+QApplication = QtWidgets.QApplication
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+from MOTEUR.scraping import profile_manager as pm
+from MOTEUR.scraping.widgets.profile_widget import ProfileWidget
+
+
+def setup_widget(tmp_path):
+    pm.PROFILES_FILE = tmp_path / "profiles.json"
+    pm.save_profiles([
+        {"name": "p1", "selector": ".a"},
+        {"name": "p2", "selector": ".b"},
+    ])
+    app = QApplication.instance() or QApplication([])
+    widget = ProfileWidget()
+    return widget
+
+
+def test_load_and_select(tmp_path):
+    widget = setup_widget(tmp_path)
+    assert widget.profile_list.count() == 2
+
+    chosen = []
+    widget.profile_chosen.connect(lambda name: chosen.append(name))
+    widget.profile_list.setCurrentRow(1)
+    assert chosen == ["p2"]
+    widget.close()
+
+
+def test_add_and_delete(tmp_path):
+    widget = setup_widget(tmp_path)
+    updates = []
+    widget.profiles_updated.connect(lambda: updates.append(1))
+
+    widget.name_edit.setText("new")
+    widget.selector_edit.setText(".c")
+    widget.add_btn.click()
+    assert widget.profile_list.count() == 3
+    assert len(updates) == 1
+
+    widget.profile_list.setCurrentRow(0)
+    widget.delete_btn.click()
+    assert widget.profile_list.count() == 2
+    assert len(updates) == 2
+    widget.close()
+
+
+def test_profile_selection_updates_image_widget(tmp_path):
+    """Selecting a profile should update the ImageScraperWidget."""
+    from MOTEUR.scraping.widgets.image_widget import ImageScraperWidget
+
+    pm.PROFILES_FILE = tmp_path / "profiles.json"
+    pm.save_profiles([
+        {"name": "p1", "selector": ".a"},
+        {"name": "p2", "selector": ".b"},
+    ])
+
+    app = QApplication.instance() or QApplication([])
+    profile_widget = ProfileWidget()
+    image_widget = ImageScraperWidget()
+    image_widget.refresh_profiles()
+    profile_widget.profile_chosen.connect(image_widget.set_selected_profile)
+
+    profile_widget.profile_list.setCurrentRow(1)
+    assert image_widget.profile_combo.currentText() == "p2"
+    profile_widget.close()
+    image_widget.close()
+```
+
+# tests/test_restart_utils.py
+Description: Source code for tests/test_restart_utils.py
+```python
+import os
+import sys
+import subprocess
+import time
+
+from MOTEUR.scraping.utils.restart import relaunch_current_process
+
+
+def test_relaunch_uses_absolute_script_path(monkeypatch, tmp_path):
+    # simulate a script launched with a relative path
+    script = tmp_path / "script.py"
+    script.write_text("print('hi')\n")
+    monkeypatch.setattr(sys, 'argv', [script.name, 'arg1'])
+
+    called = {}
+    def fake_popen(argv, **kwargs):
+        called['argv'] = argv
+        class Dummy: pass
+        return Dummy()
+
+    monkeypatch.setattr(subprocess, 'Popen', fake_popen)
+    monkeypatch.setattr(time, 'sleep', lambda s: None)
+
+    relaunch_current_process()
+
+    assert os.path.isabs(called['argv'][1])
+    assert called['argv'][1].endswith('script.py')
+```
+
+# tests/test_scrape_variants.py
+Description: Source code for tests/test_scrape_variants.py
+```python
+from pathlib import Path
+import sys
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from MOTEUR.scraping.image_scraper import scrape_variants
+from selenium.webdriver.common.by import By
+
+class DummyElement:
+    def __init__(self, attrs=None):
+        self.attrs = attrs or {}
+    def get_attribute(self, name):
+        return self.attrs.get(name)
+    def is_displayed(self):
+        return True
+    def find_element(self, by, value):
+        # only used to get following sibling label
+        return DummyElement()
+
+class DummyDriver:
+    def __init__(self, url):
+        self.current_url = url
+        self.inputs = [
+            DummyElement({'value': 'Camel', 'id': 'v1'}),
+            DummyElement({'value': 'Noir', 'id': 'v2'})
+        ]
+        self.label_map = { 'v1': DummyElement(), 'v2': DummyElement() }
+        self.img = DummyElement({'src': 'http://x'})
+    def find_elements(self, by, value):
+        if value == ".variant-picker__option-values input[type='radio']":
+            return self.inputs
+        return []
+    def find_element(self, by, value):
+        if value.startswith("label[for='"):
+            key = value.split("'")[1]
+            return self.label_map[key]
+        return self.img
+    def execute_script(self, script, el):
+        pass
+
+class DummyWait:
+    def __init__(self, driver, timeout):
+        pass
+    def until(self, method):
+        method(None)
+
+
+def test_scrape_variants_generate_urls(monkeypatch):
+    monkeypatch.setattr('MOTEUR.scraping.image_scraper.WebDriverWait', DummyWait)
+    driver = DummyDriver('https://competitor.com/products/bob-avec-lacet')
+    mapping = scrape_variants(driver)
+    assert mapping == {
+        'Camel': 'https://www.planetebob.fr/wp-content/uploads/2025/07/bob-avec-lacet-camel.jpg',
+        'Noir': 'https://www.planetebob.fr/wp-content/uploads/2025/07/bob-avec-lacet-noir.jpg',
+    }
+```
+
+# tests/test_storage_integration.py
+Description: Source code for tests/test_storage_integration.py
+```python
+import sys
+import os
+from pathlib import Path
+import pytest
+
+QtWidgets = pytest.importorskip("PySide6.QtWidgets")
+QApplication = QtWidgets.QApplication
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+from MOTEUR.scraping import profile_manager as pm, history
+from MOTEUR.scraping.widgets.image_widget import ImageScraperWidget
+from MOTEUR.scraping.widgets.storage_widget import StorageWidget
+
+
+class DummyDriver:
+    def find_element(self, by, value):
+        class El:
+            text = "Bob"
+        return El()
+
+    def quit(self):
+        pass
+
+
+def test_image_scraper_adds_to_storage(tmp_path, monkeypatch):
+    pm.PROFILES_FILE = tmp_path / "profiles.json"
+    history.HISTORY_FILE = tmp_path / "history.json"
+    history.LAST_USED_FILE = tmp_path / "last.json"
+    pm.save_profiles([{"name": "p1", "selector": ".a"}])
+
+    app = QApplication.instance() or QApplication([])
+    storage = StorageWidget()
+    widget = ImageScraperWidget(storage_widget=storage)
+    widget.refresh_profiles()
+    widget.set_selected_profile("p1")
+    urls_file = tmp_path / "urls.txt"
+    urls_file.write_text("http://example.com\n")
+    widget.file_edit.setText(str(urls_file))
+    widget.folder_edit.setText(str(tmp_path))
+    widget.variants_checkbox.setChecked(True)
+
+    monkeypatch.setattr(
+        "MOTEUR.scraping.widgets.image_widget.scrape_images",
+        lambda url, sel, folder, keep_driver=False: (0, DummyDriver()),
+    )
+    monkeypatch.setattr(
+        "MOTEUR.scraping.widgets.image_widget.scrape_variants",
+        lambda driver: {"Noir": "img1", "Beige": "img2"},
+    )
+
+    widget._start()
+
+    assert storage.table.rowCount() == 1
+    assert storage.table.item(0, 0).text() == "Bob"
+    assert "Noir" in storage.table.item(0, 1).text()
+    widget.close()
+    storage.close()
+```
+
+# tests/test_storage_widget.py
+Description: Source code for tests/test_storage_widget.py
+```python
+import sys
+import os
+from pathlib import Path
+import pytest
+
+QtWidgets = pytest.importorskip("PySide6.QtWidgets")
+QApplication = QtWidgets.QApplication
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+from MOTEUR.scraping.widgets.storage_widget import StorageWidget
+from MOTEUR.scraping.widgets.woocommerce_widget import WooCommerceProductWidget
+
+
+def test_storage_basic_operations():
+    app = QApplication.instance() or QApplication([])
+    storage = StorageWidget()
+    storage.add_product("bob", ["Noir", "Beige"])
+    assert storage.table.rowCount() == 1
+    products = storage.get_products()
+    assert products[0]["name"] == "bob"
+    assert products[0]["variants"] == ["Noir", "Beige"]
+    storage.clear()
+    assert storage.table.rowCount() == 0
+    storage.close()
+```
+
+# tests/test_woocommerce_widget.py
+Description: Source code for tests/test_woocommerce_widget.py
+```python
+import sys
+import os
+from pathlib import Path
+import csv
+import pytest
+
+QtWidgets = pytest.importorskip("PySide6.QtWidgets")
+QApplication = QtWidgets.QApplication
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+from MOTEUR.scraping.widgets.woocommerce_widget import WooCommerceProductWidget
+from MOTEUR.scraping.widgets.scrap_widget import ScrapWidget
+from MOTEUR.scraping.widgets.storage_widget import StorageWidget
+
+
+def test_widget_headers():
+    app = QApplication.instance() or QApplication([])
+    widget = WooCommerceProductWidget(storage_widget=StorageWidget())
+    assert widget.table.columnCount() == len(widget.HEADERS)
+    widget.close()
+
+
+def test_tab_added_to_scrapwidget():
+    app = QApplication.instance() or QApplication([])
+    sw = ScrapWidget()
+    labels = [sw.tabs.tabText(i) for i in range(sw.tabs.count())]
+    assert "Fiche Produit WooCommerce" in labels
+    assert "Stockage" in labels
+    sw.close()
+
+def test_fill_from_storage(tmp_path, monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    storage = StorageWidget()
+    storage.add_product("bob", ["Noir", "Beige"])
+    storage.add_product("chapeau", ["Unique"])
+
+    images_root = tmp_path / "images"
+    (images_root / "bob").mkdir(parents=True)
+    (images_root / "bob" / "bob.jpg").write_text("x")
+    (images_root / "bob" / "bob-noir.jpg").write_text("x")
+    (images_root / "bob" / "bob-beige.jpg").write_text("x")
+    (images_root / "chapeau").mkdir()
+    (images_root / "chapeau" / "chapeau.jpg").write_text("x")
+    (images_root / "chapeau" / "chapeau-unique.jpg").write_text("x")
+
+    monkeypatch.setattr(WooCommerceProductWidget, "IMAGES_ROOT", images_root)
+
+    widget = WooCommerceProductWidget(storage_widget=storage)
+    widget.fill_from_storage()
+    assert widget.table.rowCount() == 4
+    type_col = widget.HEADERS.index("Type")
+    name_col = widget.HEADERS.index("Name")
+    sku_col = widget.HEADERS.index("SKU")
+    img_col = widget.HEADERS.index("Images")
+
+    parent_sku = widget.table.item(0, sku_col).text()
+    assert widget.table.item(0, name_col).text() == "bob"
+    assert widget.table.item(0, type_col).text() == "variable"
+    images0 = set(widget.table.item(0, img_col).text().split(', '))
+    assert images0 == {
+        "https://www.planetebob.fr/wp-content/uploads/2025/07/bob.jpg",
+        "https://www.planetebob.fr/wp-content/uploads/2025/07/bob-noir.jpg",
+        "https://www.planetebob.fr/wp-content/uploads/2025/07/bob-beige.jpg",
+    }
+
+    assert widget.table.item(1, type_col).text() == "variation"
+    assert widget.table.item(1, sku_col).text() == f"{parent_sku}-noir"
+    assert widget.table.item(1, name_col).text() == "bob Noir"
+    assert widget.table.item(1, img_col).text() == (
+        "https://www.planetebob.fr/wp-content/uploads/2025/07/bob-noir.jpg"
+    )
+
+    assert widget.table.item(2, type_col).text() == "variation"
+    assert widget.table.item(2, sku_col).text() == f"{parent_sku}-beige"
+    assert widget.table.item(2, img_col).text() == (
+        "https://www.planetebob.fr/wp-content/uploads/2025/07/bob-beige.jpg"
+    )
+
+    assert widget.table.item(3, type_col).text() == "simple"
+    images3 = set(widget.table.item(3, img_col).text().split(', '))
+    assert images3 == {
+        "https://www.planetebob.fr/wp-content/uploads/2025/07/chapeau.jpg",
+        "https://www.planetebob.fr/wp-content/uploads/2025/07/chapeau-unique.jpg",
+    }
+    widget.close()
+    storage.close()
+
+
+def test_export_csv_delimiter(tmp_path, monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    widget = WooCommerceProductWidget(storage_widget=StorageWidget())
+    widget.add_row()
+    name_col = widget.HEADERS.index("Name")
+    widget.table.setItem(0, name_col, QtWidgets.QTableWidgetItem("bob"))
+
+    out_file = tmp_path / "out.csv"
+    monkeypatch.setattr(
+        "MOTEUR.scraping.widgets.woocommerce_widget.QFileDialog.getSaveFileName",
+        lambda *a, **k: (str(out_file), ""),
+    )
+
+    widget.export_csv()
+
+    with open(out_file, newline="", encoding="utf-8") as f:
+        rows = list(csv.reader(f, delimiter=";"))
+
+    assert rows[0] == widget.HEADERS
+    assert rows[1][name_col] == "bob"
+    widget.close()
+
+
+def test_clean_image_urls_option(tmp_path, monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    storage = StorageWidget()
+    storage.add_product("bob", ["Unique"])
+
+    images_root = tmp_path / "images"
+    (images_root / "bob").mkdir(parents=True)
+    (images_root / "bob" / "bob.jpg").write_text("x")
+    (images_root / "bob" / "bob_1.jpg").write_text("x")
+    (images_root / "bob" / "bob-unique.jpg").write_text("x")
+
+    monkeypatch.setattr(WooCommerceProductWidget, "IMAGES_ROOT", images_root)
+
+    # Cleaning enabled (default)
+    widget = WooCommerceProductWidget(storage_widget=storage)
+    widget.fill_from_storage()
+    img_col = widget.HEADERS.index("Images")
+    images = widget.table.item(0, img_col).text().split(", ")
+    assert images == [
+        "https://www.planetebob.fr/wp-content/uploads/2025/07/bob.jpg",
+        "https://www.planetebob.fr/wp-content/uploads/2025/07/bob-unique.jpg",
+    ]
+    widget.close()
+
+    # Cleaning disabled
+    widget2 = WooCommerceProductWidget(storage_widget=storage)
+    widget2.clean_images_checkbox.setChecked(False)
+    widget2.fill_from_storage()
+    images2 = widget2.table.item(0, img_col).text().split(", ")
+    assert images2 == [
+        "https://www.planetebob.fr/wp-content/uploads/2025/07/bob.jpg",
+        "https://www.planetebob.fr/wp-content/uploads/2025/07/bob_1.jpg",
+        "https://www.planetebob.fr/wp-content/uploads/2025/07/bob-unique.jpg",
+    ]
+    widget2.close()
+
+
+def test_fill_multiple_times_no_duplicates(tmp_path, monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    storage = StorageWidget()
+    storage.add_product("bob", ["Unique"])
+
+    widget = WooCommerceProductWidget(storage_widget=storage)
+    widget.fill_from_storage()
+    first_count = widget.table.rowCount()
+
+    # Fill again - row count should remain the same
+    widget.fill_from_storage()
+    assert widget.table.rowCount() == first_count
+
+    out_file = tmp_path / "out.csv"
+    monkeypatch.setattr(
+        "MOTEUR.scraping.widgets.woocommerce_widget.QFileDialog.getSaveFileName",
+        lambda *a, **k: (str(out_file), ""),
+    )
+
+    widget.export_csv()
+
+    with open(out_file, newline="", encoding="utf-8") as f:
+        rows = list(csv.reader(f, delimiter=";"))
+
+    # one header row + one product row
+    assert len(rows) - 1 == first_count
+    widget.close()
+    storage.close()
+```
+
