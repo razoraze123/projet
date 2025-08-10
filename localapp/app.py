@@ -37,6 +37,7 @@ from MOTEUR.compta.ventes.widget import VenteWidget
 from MOTEUR.compta.accounting.widget import AccountWidget
 from MOTEUR.scraping.widgets.profile_widget import ProfileWidget
 from MOTEUR.compta.dashboard.widget import DashboardWidget
+from MOTEUR.scraping.utils.restart import relaunch_current_process
 import subprocess
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -339,7 +340,8 @@ class MainWindow(QMainWindow):
         self.stack.addWidget(self.scrap_page)
 
         self.scraping_settings_page = ScrapingSettingsWidget(
-            self.scrap_page.modules_order
+            self.scrap_page.modules_order,
+            show_maintenance=False,
         )
         self.scraping_settings_page.module_toggled.connect(
             self.scrap_page.toggle_module
@@ -540,7 +542,7 @@ class MainWindow(QMainWindow):
             "Mise à jour",
             f"✅ Mise à jour appliquée:\n{logs}\n\nL'application va redémarrer",
         )
-        subprocess.Popen([sys.executable] + sys.argv)
+        relaunch_current_process()
         QApplication.quit()
 
     @Slot()
@@ -558,7 +560,7 @@ class MainWindow(QMainWindow):
             "Redémarrage",
             "L'application va redémarrer pour appliquer les changements.",
         )
-        subprocess.Popen([sys.executable] + sys.argv)
+        relaunch_current_process()
         QApplication.quit()
 
 

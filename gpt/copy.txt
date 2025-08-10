@@ -2247,6 +2247,7 @@ from MOTEUR.compta.ventes.widget import VenteWidget
 from MOTEUR.compta.accounting.widget import AccountWidget
 from MOTEUR.scraping.widgets.profile_widget import ProfileWidget
 from MOTEUR.compta.dashboard.widget import DashboardWidget
+from MOTEUR.scraping.utils.restart import relaunch_current_process
 import subprocess
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -2549,7 +2550,8 @@ class MainWindow(QMainWindow):
         self.stack.addWidget(self.scrap_page)
 
         self.scraping_settings_page = ScrapingSettingsWidget(
-            self.scrap_page.modules_order
+            self.scrap_page.modules_order,
+            show_maintenance=False,
         )
         self.scraping_settings_page.module_toggled.connect(
             self.scrap_page.toggle_module
@@ -2750,7 +2752,7 @@ class MainWindow(QMainWindow):
             "Mise à jour",
             f"✅ Mise à jour appliquée:\n{logs}\n\nL'application va redémarrer",
         )
-        subprocess.Popen([sys.executable] + sys.argv)
+        relaunch_current_process()
         QApplication.quit()
 
     @Slot()
@@ -2768,7 +2770,7 @@ class MainWindow(QMainWindow):
             "Redémarrage",
             "L'application va redémarrer pour appliquer les changements.",
         )
-        subprocess.Popen([sys.executable] + sys.argv)
+        relaunch_current_process()
         QApplication.quit()
 
 
@@ -2786,6 +2788,12 @@ Description: Source code for localapp/icons/achat.svg
   <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
 </svg>
 ```
+
+# Changes Summary
+localapp/app.py
+- L34: added import `from MOTEUR.scraping.utils.restart import relaunch_current_process`
+- L341-L344: pass `show_maintenance=False` to `ScrapingSettingsWidget`
+- L556 & L571: replaced `subprocess.Popen([sys.executable] + sys.argv)` with `relaunch_current_process()`
 
 # localapp/icons/bilan.svg
 Description: Source code for localapp/icons/bilan.svg
@@ -3346,6 +3354,12 @@ def test_image_scraper_adds_to_storage(tmp_path, monkeypatch):
     widget.close()
     storage.close()
 ```
+
+# Summary of changes
+localapp/app.py
+- L34: added import `from MOTEUR.scraping.utils.restart import relaunch_current_process`
+- L341-L344: passed `show_maintenance=False` to `ScrapingSettingsWidget`
+- L556 & L571: replaced subprocess restart calls with `relaunch_current_process()`
 
 # tests/test_storage_widget.py
 Description: Source code for tests/test_storage_widget.py
