@@ -150,6 +150,26 @@ class FlaskBridgeServer:
             self._log(f"Job {st.job_id} accepté pour {url}")
             return jsonify({"job_id": st.job_id, "message": "accepted"}), 202
 
+        @app.post("/actions/image-edit")
+        def image_edit() -> Any:
+            auth = require_key()
+            if auth:
+                return auth
+            data = request.get_json(force=True, silent=True) or {}
+            src_folder = (data.get("source") or {}).get("folder")
+            ops = data.get("operations") or []
+            target_subdir = data.get("target_subdir") or "image fait par gpt"
+            if not src_folder or not ops:
+                return (
+                    jsonify({"error": "invalid_request", "detail": "source & operations required"}),
+                    400,
+                )
+            st = self.jobs.submit(
+                self._run_image_action_job, src_folder, ops, target_subdir
+            )
+            self._log(f"Job {st.job_id} accepté pour actions images")
+            return jsonify({"job_id": st.job_id, "message": "accepted"}), 202
+
         @app.get("/jobs/<job_id>")
         def job_status(job_id: str) -> Any:
             auth = require_key()
@@ -274,6 +294,72 @@ class FlaskBridgeServer:
             st.status = "error"
             st.message = str(exc)
             st.errors.append({"url": url, "error": str(exc)})
+        finally:
+            st.finished_at = _dt.datetime.utcnow().isoformat() + "Z"
+
+    def _run_image_action_job(
+        self, st: JobStatus, src_folder: str, ops: list[dict], target_subdir: str
+    ) -> None:
+        st.status = "running"
+        st.started_at = _dt.datetime.utcnow().isoformat() + "Z"
+        try:
+            src = Path(src_folder).expanduser()
+            if not src.is_absolute():
+                src = (Path.cwd() / src).resolve()
+            files = [
+                f
+                for f in sorted(src.iterdir())
+                if f.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"}
+            ]
+            st.progress["found"] = len(files)
+            out_dir = src / (target_subdir or "image fait par gpt")
+            out_dir.mkdir(parents=True, exist_ok=True)
+            st.output_dir = str(out_dir)
+            delay = 0.0
+            rate = self.default_flags.get("rate_limit", 0)
+            if rate:
+                delay = 60.0 / max(rate, 1)
+            from PIL import Image, ImageFilter
+
+            for img_path in files:
+                try:
+                    img = Image.open(img_path)
+                    for op in ops:
+                        name = op.get("op")
+                        if name == "resize":
+                            w = int(op.get("width", 0))
+                            h = int(op.get("height", 0))
+                            keep = bool(op.get("keep_ratio"))
+                            if w and h:
+                                if keep:
+                                    img.thumbnail((w, h))
+                                else:
+                                    img = img.resize((w, h))
+                        elif name == "sharpen":
+                            amt = float(op.get("amount", 0))
+                            img = img.filter(
+                                ImageFilter.UnsharpMask(
+                                    percent=int(amt * 150), radius=2
+                                )
+                            )
+                        elif name == "remove_bg":
+                            img = img.convert("RGBA")
+                            bg = Image.new("RGBA", img.size, (255, 255, 255, 255))
+                            bg.paste(img, mask=img.split()[3])
+                            img = bg.convert("RGB")
+                    img.save(out_dir / img_path.name)
+                    st.progress["downloaded"] += 1
+                    if len(st.sample_images) < 5:
+                        st.sample_images.append(img_path.name)
+                except Exception as exc:
+                    st.progress["failed"] += 1
+                    st.errors.append({"file": img_path.name, "error": str(exc)})
+                if delay:
+                    time.sleep(delay)
+            st.status = "done"
+        except Exception as exc:  # pragma: no cover - hard to trigger in tests
+            st.status = "error"
+            st.message = str(exc)
         finally:
             st.finished_at = _dt.datetime.utcnow().isoformat() + "Z"
 

@@ -5,3 +5,4 @@ requests
 openpyxl
 Flask
 pyngrok
+Pillow

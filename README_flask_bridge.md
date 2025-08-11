@@ -24,6 +24,9 @@ Une fois le serveur lancé, l'endpoint `/health` répond sans authentification.
 #      -d '{"url": "https://exemple.com", "selector": "img"}' \
 #      http://localhost:5001/scrape
 # curl -H "X-API-KEY: VOTRE_CLE" http://localhost:5001/jobs/<job_id>
+# curl -X POST http://localhost:5001/actions/image-edit \\
+#      -H "X-API-KEY: VOTRE_CLE" -H "Content-Type: application/json" \\
+#      -d '{"source":{"folder":"/path/images"},"operations":[{"op":"resize","width":1024,"height":1024,"keep_ratio":true}]}'
 ```
 
 Les réponses pour les autres endpoints (`/scrape`, `/jobs`, `/profiles`,
