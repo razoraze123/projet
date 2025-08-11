@@ -1,0 +1,85 @@
+import woocommerce_export as we
+
+
+def test_transform_rows_example():
+    rows = [
+        {"Type": "variable", "SKU": "SKU-ABC", "Name": "Bob Test", "Images": "url/beige.jpg, url/noir.jpg"},
+        {"Type": "variation", "SKU": "SKU-ABC-beige", "Name": "Bob Test Beige", "Images": "url/beige.jpg"},
+        {"Type": "variation", "SKU": "SKU-ABC-noir", "Name": "Bob Test Noir", "Images": "url/noir.jpg"},
+    ]
+
+    transformed = we.transform_woocommerce_rows(rows)
+
+    expected = [
+        {
+            "ID": "",
+            "Type": "variable",
+            "SKU": "SKU-ABC",
+            "Parent": "",
+            "Name": "Bob Test",
+            "Published": "1",
+            "Short description": "",
+            "Description": "",
+            "Regular price": "",
+            "Sale price": "",
+            "Categories": "",
+            "Tags": "",
+            "Images": "url/beige.jpg,url/noir.jpg",
+            "In stock?": "yes",
+            "Stock": "",
+            "Tax status": "taxable",
+            "Shipping class": "",
+            "Attribute 1 name": "Couleur",
+            "Attribute 1 value(s)": "Beige|Noir",
+            "Attribute 1 visible": "1",
+            "Attribute 1 global": "1",
+        },
+        {
+            "ID": "",
+            "Type": "variation",
+            "SKU": "SKU-ABC-beige",
+            "Parent": "SKU-ABC",
+            "Name": "Bob Test Beige",
+            "Published": "1",
+            "Short description": "",
+            "Description": "",
+            "Regular price": "",
+            "Sale price": "",
+            "Categories": "",
+            "Tags": "",
+            "Images": "url/beige.jpg",
+            "In stock?": "yes",
+            "Stock": "",
+            "Tax status": "taxable",
+            "Shipping class": "",
+            "Attribute 1 name": "Couleur",
+            "Attribute 1 value(s)": "Beige",
+            "Attribute 1 visible": "1",
+            "Attribute 1 global": "1",
+        },
+        {
+            "ID": "",
+            "Type": "variation",
+            "SKU": "SKU-ABC-noir",
+            "Parent": "SKU-ABC",
+            "Name": "Bob Test Noir",
+            "Published": "1",
+            "Short description": "",
+            "Description": "",
+            "Regular price": "",
+            "Sale price": "",
+            "Categories": "",
+            "Tags": "",
+            "Images": "url/noir.jpg",
+            "In stock?": "yes",
+            "Stock": "",
+            "Tax status": "taxable",
+            "Shipping class": "",
+            "Attribute 1 name": "Couleur",
+            "Attribute 1 value(s)": "Noir",
+            "Attribute 1 visible": "1",
+            "Attribute 1 global": "1",
+        },
+    ]
+
+    assert transformed == expected
