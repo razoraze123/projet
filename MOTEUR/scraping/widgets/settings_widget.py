@@ -5,9 +5,55 @@ from PySide6.QtWidgets import (
     QPushButton,
     QMessageBox,
     QTextEdit,
+    QDialog,
+    QLabel,
+    QProgressBar,
+    QApplication,
 )
-from PySide6.QtCore import Signal, Slot, QCoreApplication, QProcess
-from pathlib import Path
+from PySide6.QtCore import Signal, Slot, QCoreApplication, QProcess, Qt, QTimer
+import sys, os
+
+
+class UpdateDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Mise à jour en cours")
+        self.setWindowModality(Qt.ApplicationModal)
+        self.setMinimumWidth(420)
+
+        self.label = QLabel("Mise à jour en cours…")
+        self.bar = QProgressBar()
+        self.bar.setRange(0, 0)
+        self.log = QTextEdit()
+        self.log.setReadOnly(True)
+        self.log.setVisible(False)
+
+        self.btn_show_log = QPushButton("Afficher les détails")
+        self.btn_show_log.setCheckable(True)
+        self.btn_show_log.toggled.connect(self.log.setVisible)
+
+        lay = QVBoxLayout(self)
+        lay.addWidget(self.label)
+        lay.addWidget(self.bar)
+        lay.addWidget(self.btn_show_log)
+        lay.addWidget(self.log)
+
+    def append_log(self, text: str):
+        if text := (text or "").strip():
+            self.log.append(text)
+
+    def set_status(self, text: str):
+        self.label.setText(text)
+
+    def set_done(self, text: str = "Mise à jour réussie."):
+        self.bar.setRange(0, 1)
+        self.bar.setValue(1)
+        self.set_status(text)
+
+
+def restart_app():
+    QProcess.startDetached(sys.executable, sys.argv, os.getcwd())
+    QApplication.instance().quit()
 
 
 class ScrapingSettingsWidget(QWidget):
@@ -17,13 +63,11 @@ class ScrapingSettingsWidget(QWidget):
     def __init__(self, modules_order=None, *, show_maintenance: bool = False):
         super().__init__()
         from ..utils.restart import relaunch_current_process
-        from ..utils.update import PROJECT_ROOT
 
         layout = QVBoxLayout(self)
         # (conserver vos éléments existants ici)
         _ = (modules_order or [])
 
-        self._project_root = PROJECT_ROOT
         self._relaunch_current_process = relaunch_current_process
 
         if show_maintenance:
@@ -40,59 +84,71 @@ class ScrapingSettingsWidget(QWidget):
         row.addWidget(self.restart_btn)
         layout.addLayout(row)
 
-        # Simple log output
-        self.log_edit = QTextEdit()
-        self.log_edit.setReadOnly(True)
-        layout.addWidget(self.log_edit)
-
         # Prepare git QProcess
         self._git_proc = QProcess(self)
-        self._git_proc.readyReadStandardOutput.connect(
-            lambda: self._append_log(
-                bytes(self._git_proc.readAllStandardOutput()).decode("utf-8", "ignore")
-            )
-        )
-        self._git_proc.readyReadStandardError.connect(
-            lambda: self._append_log(
-                bytes(self._git_proc.readAllStandardError()).decode("utf-8", "ignore")
-            )
-        )
-        self._git_proc.finished.connect(self._on_git_finished)
 
         self.update_btn.clicked.connect(self._on_update_clicked)
         self.restart_btn.clicked.connect(self._on_restart_clicked)
 
     # ------------------------------------------------------------------
-    def _append_log(self, text: str) -> None:
-        if hasattr(self, "log_edit") and self.log_edit is not None:
-            txt = text.strip()
-            if txt:
-                self.log_edit.append(txt)
-
-    # ------------------------------------------------------------------
     @Slot()
     def _on_update_clicked(self) -> None:
-        root = Path(self._project_root)
+        from pathlib import Path
+        root = Path(__file__).resolve().parents[3]
         if not (root / ".git").exists():
-            QMessageBox.critical(
-                self, "Mettre à jour", f"Aucun dépôt Git détecté dans :\n{root}"
-            )
+            QMessageBox.critical(self, "Mettre à jour", f"Aucun dépôt Git détecté dans :\n{root}")
             return
 
+        self._upd = UpdateDialog(self)
+        self._upd.set_status("Mise à jour en cours…")
+        self._upd.show()
+
         self.update_btn.setEnabled(False)
-        self.update_btn.setText("Mise à jour en cours…")
-        self._append_log(f"> git pull origin main (cwd={root})")
+
         self._git_proc.setWorkingDirectory(str(root))
+
+        try:
+            self._git_proc.readyReadStandardOutput.disconnect()
+        except Exception:
+            pass
+        self._git_proc.readyReadStandardOutput.connect(
+            lambda: self._upd.append_log(bytes(self._git_proc.readAllStandardOutput()).decode("utf-8", "ignore"))
+        )
+
+        try:
+            self._git_proc.readyReadStandardError.disconnect()
+        except Exception:
+            pass
+        self._git_proc.readyReadStandardError.connect(
+            lambda: self._upd.append_log(bytes(self._git_proc.readAllStandardError()).decode("utf-8", "ignore"))
+        )
+
+        try:
+            self._git_proc.finished.disconnect()
+        except Exception:
+            pass
+        self._git_proc.finished.connect(self._on_git_finished_with_restart)
+
+        self._upd.append_log(f"> git pull origin main (cwd={root})")
         self._git_proc.start("git", ["pull", "origin", "main"])
 
         if not self._git_proc.waitForStarted(2000):
             self.update_btn.setEnabled(True)
-            self.update_btn.setText("Mettre à jour")
+            self._upd.close()
             QMessageBox.critical(
-                self,
-                "Mettre à jour",
-                "Impossible de démarrer Git. Est-il installé et dans le PATH ?",
+                self, "Mettre à jour", "Impossible de démarrer Git. Est-il installé et dans le PATH ?"
             )
+
+    def _on_git_finished_with_restart(self, code: int, status):
+        self.update_btn.setEnabled(True)
+
+        if code == 0:
+            self._upd.set_done("Mise à jour réussie, redémarrage…")
+            QTimer.singleShot(800, restart_app)
+        else:
+            if hasattr(self, "_upd"):
+                self._upd.close()
+            QMessageBox.critical(self, "Mettre à jour", f"Échec du 'git pull' (code {code}). Consulte les détails.")
 
     # ------------------------------------------------------------------
     def _on_git_finished(self, code: int, status) -> None:
