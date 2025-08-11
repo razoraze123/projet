@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Slot
 import json, requests
 import os
+from pathlib import Path
 import secrets
 
 from ..server.flask_server import FlaskBridgeServer
@@ -63,6 +64,7 @@ class FlaskServerWidget(QWidget):
         # image actions
         self.source_folder = QLineEdit()
         self.target_subdir = QLineEdit("image fait par gpt")
+        self.sample_alias = QLineEdit()
         self.operations_json = QLineEdit(
             '[{"op":"resize","width":1024,"height":1024,"keep_ratio":true}]'
         )
@@ -112,6 +114,9 @@ class FlaskServerWidget(QWidget):
         act2 = QHBoxLayout()
         act2.addWidget(QLabel("Target subdir"))
         act2.addWidget(self.target_subdir)
+        act_alias = QHBoxLayout()
+        act_alias.addWidget(QLabel("Alias 'sample_folder' →"))
+        act_alias.addWidget(self.sample_alias)
         act3 = QHBoxLayout()
         act3.addWidget(QLabel("Operations (JSON)"))
         act3.addWidget(self.operations_json)
@@ -119,7 +124,7 @@ class FlaskServerWidget(QWidget):
         actb.addWidget(self.launch_action_btn)
         actb.addWidget(self.status_btn)
 
-        for row in (act1, act2, act3, actb):
+        for row in (act1, act2, act_alias, act3, actb):
             lay.addLayout(row)
         lay.addWidget(self.status_label)
         lay.addWidget(self.url_label)
@@ -154,6 +159,9 @@ class FlaskServerWidget(QWidget):
                 self.ignore_robots.setChecked(bool(cfg.get("ignore_robots", False)))
                 self.rate.setText(str(cfg.get("rate", 0)))
                 self.maxw.setText(str(cfg.get("max_workers", 1)))
+                self.sample_alias.setText(
+                    (cfg.get("path_aliases") or {}).get("sample_folder", "")
+                )
         except Exception:
             pass
 
@@ -167,6 +175,9 @@ class FlaskServerWidget(QWidget):
             "ignore_robots": self.ignore_robots.isChecked(),
             "rate": int(self.rate.text() or 0),
             "max_workers": int(self.maxw.text() or 1),
+        }
+        cfg["path_aliases"] = {
+            "sample_folder": self.sample_alias.text().strip()
         }
         with open(CFG_FILE, "w", encoding="utf-8") as f:
             json.dump(cfg, f, indent=2, ensure_ascii=False)
@@ -189,6 +200,22 @@ class FlaskServerWidget(QWidget):
             pub = ""
             if cfg["expose"]:
                 pub = self.server.enable_ngrok(cfg["ngrok_token"], cfg["port"])
+            try:
+                if cfg.get("path_aliases", {}):
+                    url = f"http://localhost:{cfg['port']}/aliases"
+                    headers = {
+                        "X-API-KEY": cfg["api_key"],
+                        "Content-Type": "application/json",
+                    }
+                    requests.post(
+                        url,
+                        headers=headers,
+                        data=json.dumps(cfg["path_aliases"]),
+                        timeout=10,
+                    )
+                    self._append(f"↔︎ Aliases synced: {cfg['path_aliases']}")
+            except Exception as e:
+                self._append(f"⚠️ Alias sync error: {e}")
             self.status_label.setText("Statut : En cours d’exécution")
             self.url_label.setText(
                 f"URL publique : {pub or f'http://localhost:{cfg['port']}/health'}"
@@ -236,15 +263,37 @@ class FlaskServerWidget(QWidget):
             port = int(self.port.text() or 5001)
             api_key = self.api_key.text().strip()
             src = self.source_folder.text().strip()
-            tgt = self.target_subdir.text().strip() or "image fait par gpt"
+            alias = self.sample_alias.text().strip()
+            tgt = self.target_subdir.text().strip()
             ops_text = self.operations_json.text().strip()
             ops = json.loads(ops_text) if ops_text else []
-            if not src or not ops:
-                self._append("❌ Source folder ou operations JSON manquants")
+            if src:
+                p = Path(src)
+                if not p.exists():
+                    self._append(f"❌ Dossier introuvable : {src}")
+                    return
+                exts = {".jpg", ".jpeg", ".png", ".webp"}
+                has_img = any(
+                    pp.suffix.lower() in exts for pp in p.iterdir() if pp.is_file()
+                )
+                if not has_img:
+                    self._append(f"❌ Aucun fichier image dans : {src}")
+                    return
+            elif not alias:
+                self._append(
+                    "❌ Source folder vide et aucun alias 'sample_folder' défini."
+                )
+                return
+            if not ops:
+                self._append("❌ Operations JSON manquant")
                 return
             url = f"http://localhost:{port}/actions/image-edit"
             headers = {"X-API-KEY": api_key, "Content-Type": "application/json"}
-            payload = {"source": {"folder": src}, "operations": ops, "target_subdir": tgt}
+            payload = {
+                "source": {"folder": src},
+                "operations": ops,
+                "target_subdir": tgt,
+            }
             r = requests.post(url, headers=headers, data=json.dumps(payload), timeout=15)
             if r.status_code != 202:
                 self._append(f"❌ {r.status_code}: {r.text}")
