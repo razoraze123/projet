@@ -1,5 +1,8 @@
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QTabWidget
 
+from MOTEUR.ui.theme import load_theme, apply_theme
+from MOTEUR.ui.settings_widget import SettingsWidget
+
 from .image_widget import ImageScraperWidget
 from .history_widget import HistoryWidget
 from .woocommerce_widget import WooCommerceProductWidget
@@ -10,6 +13,7 @@ from .flask_server_widget import FlaskServerWidget
 class ScrapWidget(QWidget):
     def __init__(self) -> None:
         super().__init__()
+        apply_theme(load_theme())
         self.modules_order = [
             "images",
             "flask",
@@ -30,6 +34,8 @@ class ScrapWidget(QWidget):
         self.tabs.addTab(self.history_widget, "Historique")
         self.tabs.addTab(self.woocommerce_widget, "Fiche Produit WooCommerce")
         self.tabs.addTab(self.storage_widget, "Stockage")
+        self.settings_widget = SettingsWidget()
+        self.tabs.addTab(self.settings_widget, "Paramètres")
         layout = QVBoxLayout(self)
         layout.addWidget(self.tabs)
 
