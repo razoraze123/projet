@@ -33,9 +33,13 @@ def test_aliases_and_image_edit(tmp_path):
         headers={"X-API-KEY": "k"},
     )
     assert resp.status_code == 200
+    assert resp.get_json() == {
+        "sample_folder": str(img_dir),
+        "sample_images": str(img_dir),
+    }
 
     payload = {
-        "source": {"folder": "sample_folder"},
+        "source": {"folder": "sample_images"},
         "operations": [{"op": "resize", "width": 5, "height": 5}],
     }
     resp = client.post(
