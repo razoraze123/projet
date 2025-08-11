@@ -101,6 +101,7 @@ class FlaskBridgeServer:
             "max_workers": 1,
         }
         self.jobs = JobManager(max_workers=2)
+        self.path_aliases = {"sample_folder": ""}  # will be updated by the UI
         self._mount_routes()
 
     # ------------------------------------------------------------------
@@ -109,6 +110,15 @@ class FlaskBridgeServer:
         log.info(msg)
         if self.on_log:
             self.on_log(msg)
+
+    def _resolve_folder(self, raw: str) -> str:
+        s = (raw or "").strip()
+        if not s:
+            return ""
+        if s in self.path_aliases and self.path_aliases[s]:
+            return self.path_aliases[s]
+        s = os.path.expandvars(os.path.expanduser(s))
+        return str(Path(s))
 
     # ------------------------------------------------------------------
     # Flask routes
@@ -133,6 +143,23 @@ class FlaskBridgeServer:
             if not self.api_key or key != self.api_key:
                 return jsonify({"error": "unauthorized"}), 401
             return None
+
+        @app.get("/aliases")
+        def get_aliases() -> Any:
+            auth = require_key()
+            if auth:
+                return auth
+            return jsonify(self.path_aliases)
+
+        @app.post("/aliases")
+        def post_aliases() -> Any:
+            auth = require_key()
+            if auth:
+                return auth
+            data = request.get_json(force=True, silent=True) or {}
+            for k, v in data.items():
+                self.path_aliases[k] = (v or "").strip()
+            return jsonify(self.path_aliases)
 
         @app.post("/scrape")
         def scrape() -> Any:
@@ -159,15 +186,51 @@ class FlaskBridgeServer:
             if auth:
                 return auth
             data = request.get_json(force=True, silent=True) or {}
-            src = ((data.get("source") or {}).get("folder") or "").strip()
+            raw_src = ((data.get("source") or {}).get("folder") or "").strip()
+            src = self._resolve_folder(raw_src)
             ops = data.get("operations") or []
             target_subdir = (data.get("target_subdir") or "image fait par gpt").strip()
-            if not src or not ops:
+            if not src:
                 return (
                     jsonify(
                         {
                             "error": "invalid_request",
-                            "detail": "source.folder & operations required",
+                            "detail": "source.folder is empty",
+                        }
+                    ),
+                    400,
+                )
+            p = Path(src)
+            if not p.exists():
+                return (
+                    jsonify(
+                        {
+                            "error": "invalid_request",
+                            "detail": f"source not found: {src}",
+                        }
+                    ),
+                    400,
+                )
+            image_exts = {".jpg", ".jpeg", ".png", ".webp"}
+            has_images = any(
+                pp.suffix.lower() in image_exts for pp in p.iterdir() if pp.is_file()
+            )
+            if not has_images:
+                return (
+                    jsonify(
+                        {
+                            "error": "invalid_request",
+                            "detail": f"no images in: {src}",
+                        }
+                    ),
+                    400,
+                )
+            if not ops:
+                return (
+                    jsonify(
+                        {
+                            "error": "invalid_request",
+                            "detail": "operations required",
                         }
                     ),
                     400,
