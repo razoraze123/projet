@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
     QApplication,
 )
 from PySide6.QtCore import Slot
-import json
+import json, requests
 import os
 import secrets
 
@@ -31,6 +31,7 @@ class FlaskServerWidget(QWidget):
         self.server = FlaskBridgeServer(on_log=self._append)
         self._build_ui()
         self._load_cfg()
+        self._last_job_id = ""
 
     # ------------------------------------------------------------------
     def _build_ui(self) -> None:
@@ -58,16 +59,15 @@ class FlaskServerWidget(QWidget):
         copyurl.clicked.connect(self._copy_url)
 
         # image actions
-        self.src_folder = QLineEdit()
+        self.source_folder = QLineEdit()
         self.target_subdir = QLineEdit("image fait par gpt")
-        self.ops_edit = QLineEdit(
+        self.operations_json = QLineEdit(
             '[{"op":"resize","width":1024,"height":1024,"keep_ratio":true}]'
         )
-        self.launch_action = QPushButton("Lancer action")
-        self.launch_action.clicked.connect(self._launch_action)
-        self.check_job = QPushButton("Status job")
-        self.check_job.clicked.connect(self._check_job)
-        self.last_job_id: str | None = None
+        self.launch_action_btn = QPushButton("Lancer action")
+        self.launch_action_btn.clicked.connect(self._launch_action)
+        self.status_btn = QPushButton("Status job")
+        self.status_btn.clicked.connect(self._status_job)
 
         # layouts
         top = QHBoxLayout()
@@ -105,16 +105,16 @@ class FlaskServerWidget(QWidget):
 
         act1 = QHBoxLayout()
         act1.addWidget(QLabel("Source folder"))
-        act1.addWidget(self.src_folder)
+        act1.addWidget(self.source_folder)
         act2 = QHBoxLayout()
         act2.addWidget(QLabel("Target subdir"))
         act2.addWidget(self.target_subdir)
         act3 = QHBoxLayout()
         act3.addWidget(QLabel("Operations (JSON)"))
-        act3.addWidget(self.ops_edit)
+        act3.addWidget(self.operations_json)
         actb = QHBoxLayout()
-        actb.addWidget(self.launch_action)
-        actb.addWidget(self.check_job)
+        actb.addWidget(self.launch_action_btn)
+        actb.addWidget(self.status_btn)
 
         for row in (act1, act2, act3, actb):
             lay.addLayout(row)
@@ -209,44 +209,41 @@ class FlaskServerWidget(QWidget):
             self._append(f"❌ Erreur arrêt : {e}")
 
     # ------------------------------------------------------------------
+    @Slot()
     def _launch_action(self) -> None:
-        import requests
-
         try:
             port = int(self.port.text() or 5001)
+            api_key = self.api_key.text().strip()
+            src = self.source_folder.text().strip()
+            tgt = self.target_subdir.text().strip() or "image fait par gpt"
+            ops_text = self.operations_json.text().strip()
+            ops = json.loads(ops_text) if ops_text else []
+            if not src or not ops:
+                self._append("❌ Source folder ou operations JSON manquants")
+                return
             url = f"http://localhost:{port}/actions/image-edit"
-            ops = json.loads(self.ops_edit.text() or "[]")
-            data = {
-                "source": {"folder": self.src_folder.text().strip()},
-                "operations": ops,
-                "target_subdir": self.target_subdir.text().strip()
-                or "image fait par gpt",
-            }
-            headers = {
-                "X-API-KEY": self.api_key.text().strip(),
-                "Content-Type": "application/json",
-            }
-            self._append(f"POST {url}")
-            r = requests.post(url, headers=headers, json=data, timeout=30)
-            if r.ok:
-                self.last_job_id = r.json().get("job_id")
-                self._append(f"Job lancé: {self.last_job_id}")
-            else:  # pragma: no cover - simple UI feedback
-                self._append(f"Erreur: {r.status_code} {r.text}")
-        except Exception as e:  # pragma: no cover - simple UI feedback
-            self._append(f"❌ Erreur action: {e}")
+            headers = {"X-API-KEY": api_key, "Content-Type": "application/json"}
+            payload = {"source": {"folder": src}, "operations": ops, "target_subdir": tgt}
+            r = requests.post(url, headers=headers, data=json.dumps(payload), timeout=15)
+            if r.status_code != 202:
+                self._append(f"❌ {r.status_code}: {r.text}")
+                return
+            self._last_job_id = r.json().get("job_id", "")
+            self._append(f"🚀 Action lancée — job_id: {self._last_job_id}")
+        except Exception as e:
+            self._append(f"❌ Erreur envoi action: {e}")
 
-    def _check_job(self) -> None:
-        import requests
-
-        if not self.last_job_id:
-            self._append("Aucun job")
-            return
+    @Slot()
+    def _status_job(self) -> None:
         try:
+            if not self._last_job_id:
+                self._append("ℹ️ Aucun job_id — lance d’abord une action.")
+                return
             port = int(self.port.text() or 5001)
-            url = f"http://localhost:{port}/jobs/{self.last_job_id}"
-            headers = {"X-API-KEY": self.api_key.text().strip()}
-            r = requests.get(url, headers=headers, timeout=30)
+            api_key = self.api_key.text().strip()
+            url = f"http://localhost:{port}/jobs/{self._last_job_id}"
+            headers = {"X-API-KEY": api_key}
+            r = requests.get(url, headers=headers, timeout=10)
             self._append(r.text)
-        except Exception as e:  # pragma: no cover - simple UI feedback
+        except Exception as e:
             self._append(f"❌ Erreur status: {e}")

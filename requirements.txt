@@ -5,4 +5,4 @@ requests
 openpyxl
 Flask
 pyngrok
-Pillow
+Pillow>=10
