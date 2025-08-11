@@ -19,7 +19,7 @@ import uuid
 import logging
 from pathlib import Path
 
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_file
 from werkzeug.serving import make_server
 from concurrent.futures import ThreadPoolExecutor, Future
 
@@ -30,6 +30,8 @@ from ..history import load_history
 
 log = logging.getLogger("flask-bridge")
 log.setLevel(logging.INFO)
+
+IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
 
 
 @dataclass
@@ -174,6 +176,87 @@ class FlaskBridgeServer:
                     self.path_aliases[k] = v.strip()
             self._normalize_aliases()
             return jsonify(self.path_aliases), 200
+
+        @app.get("/files/list")
+        def files_list() -> Any:
+            auth = require_key()
+            if auth:
+                return auth
+            raw_folder = (request.args.get("folder") or "").strip()
+            folder = (
+                self._resolve_folder(raw_folder)
+                if hasattr(self, "_resolve_folder")
+                else raw_folder
+            )
+            p = Path(folder)
+            if not p.exists() or not p.is_dir():
+                return (
+                    jsonify(
+                        {
+                            "error": "invalid_request",
+                            "detail": f"folder not found: {folder}",
+                        }
+                    ),
+                    400,
+                )
+
+            files = [
+                f.name
+                for f in p.iterdir()
+                if f.is_file() and f.suffix.lower() in IMAGE_EXTS
+            ]
+            base = request.host_url.rstrip("/")
+            urls = [
+                f"{base}/files/raw?folder={raw_folder}&name={name}" for name in files
+            ]
+            return jsonify(
+                {
+                    "folder": raw_folder or folder,
+                    "count": len(files),
+                    "files": files,
+                    "urls": urls,
+                }
+            )
+
+        @app.get("/files/raw")
+        def files_raw() -> Any:
+            auth = require_key()
+            if auth:
+                return auth
+            raw_folder = (request.args.get("folder") or "").strip()
+            name = (request.args.get("name") or "").strip()
+            if not name:
+                return (
+                    jsonify({"error": "invalid_request", "detail": "name required"}),
+                    400,
+                )
+            folder = (
+                self._resolve_folder(raw_folder)
+                if hasattr(self, "_resolve_folder")
+                else raw_folder
+            )
+            p = Path(folder) / name
+            if not p.exists() or not p.is_file():
+                return (
+                    jsonify(
+                        {
+                            "error": "invalid_request",
+                            "detail": f"file not found: {p}",
+                        }
+                    ),
+                    404,
+                )
+            if p.suffix.lower() not in IMAGE_EXTS:
+                return (
+                    jsonify(
+                        {
+                            "error": "invalid_request",
+                            "detail": "unsupported file type",
+                        }
+                    ),
+                    400,
+                )
+            return send_file(str(p), as_attachment=False)
 
         @app.post("/scrape")
         def scrape() -> Any:
