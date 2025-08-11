@@ -57,6 +57,18 @@ class FlaskServerWidget(QWidget):
         copyurl = QPushButton("Copier URL")
         copyurl.clicked.connect(self._copy_url)
 
+        # image actions
+        self.src_folder = QLineEdit()
+        self.target_subdir = QLineEdit("image fait par gpt")
+        self.ops_edit = QLineEdit(
+            '[{"op":"resize","width":1024,"height":1024,"keep_ratio":true}]'
+        )
+        self.launch_action = QPushButton("Lancer action")
+        self.launch_action.clicked.connect(self._launch_action)
+        self.check_job = QPushButton("Status job")
+        self.check_job.clicked.connect(self._check_job)
+        self.last_job_id: str | None = None
+
         # layouts
         top = QHBoxLayout()
         top.addWidget(QLabel("Port:"))
@@ -89,6 +101,22 @@ class FlaskServerWidget(QWidget):
 
         lay = QVBoxLayout(self)
         for row in (top, k, n, o, r, btn):
+            lay.addLayout(row)
+
+        act1 = QHBoxLayout()
+        act1.addWidget(QLabel("Source folder"))
+        act1.addWidget(self.src_folder)
+        act2 = QHBoxLayout()
+        act2.addWidget(QLabel("Target subdir"))
+        act2.addWidget(self.target_subdir)
+        act3 = QHBoxLayout()
+        act3.addWidget(QLabel("Operations (JSON)"))
+        act3.addWidget(self.ops_edit)
+        actb = QHBoxLayout()
+        actb.addWidget(self.launch_action)
+        actb.addWidget(self.check_job)
+
+        for row in (act1, act2, act3, actb):
             lay.addLayout(row)
         lay.addWidget(self.status_label)
         lay.addWidget(self.url_label)
@@ -179,3 +207,46 @@ class FlaskServerWidget(QWidget):
             self._append("🛑 Serveur arrêté")
         except Exception as e:  # pragma: no cover - UI feedback
             self._append(f"❌ Erreur arrêt : {e}")
+
+    # ------------------------------------------------------------------
+    def _launch_action(self) -> None:
+        import requests
+
+        try:
+            port = int(self.port.text() or 5001)
+            url = f"http://localhost:{port}/actions/image-edit"
+            ops = json.loads(self.ops_edit.text() or "[]")
+            data = {
+                "source": {"folder": self.src_folder.text().strip()},
+                "operations": ops,
+                "target_subdir": self.target_subdir.text().strip()
+                or "image fait par gpt",
+            }
+            headers = {
+                "X-API-KEY": self.api_key.text().strip(),
+                "Content-Type": "application/json",
+            }
+            self._append(f"POST {url}")
+            r = requests.post(url, headers=headers, json=data, timeout=30)
+            if r.ok:
+                self.last_job_id = r.json().get("job_id")
+                self._append(f"Job lancé: {self.last_job_id}")
+            else:  # pragma: no cover - simple UI feedback
+                self._append(f"Erreur: {r.status_code} {r.text}")
+        except Exception as e:  # pragma: no cover - simple UI feedback
+            self._append(f"❌ Erreur action: {e}")
+
+    def _check_job(self) -> None:
+        import requests
+
+        if not self.last_job_id:
+            self._append("Aucun job")
+            return
+        try:
+            port = int(self.port.text() or 5001)
+            url = f"http://localhost:{port}/jobs/{self.last_job_id}"
+            headers = {"X-API-KEY": self.api_key.text().strip()}
+            r = requests.get(url, headers=headers, timeout=30)
+            self._append(r.text)
+        except Exception as e:  # pragma: no cover - simple UI feedback
+            self._append(f"❌ Erreur status: {e}")
