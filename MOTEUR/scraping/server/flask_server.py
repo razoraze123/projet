@@ -101,7 +101,8 @@ class FlaskBridgeServer:
             "max_workers": 1,
         }
         self.jobs = JobManager(max_workers=2)
-        self.path_aliases = {"sample_folder": ""}  # will be updated by the UI
+        self.path_aliases = getattr(self, "path_aliases", {"sample_folder": ""})
+        self._normalize_aliases()
         self._mount_routes()
 
     # ------------------------------------------------------------------
@@ -119,6 +120,17 @@ class FlaskBridgeServer:
             return self.path_aliases[s]
         s = os.path.expandvars(os.path.expanduser(s))
         return str(Path(s))
+
+    def _normalize_aliases(self) -> None:
+        """Garantit que 'sample_images' pointe sur 'sample_folder' si non défini."""
+        try:
+            sf = (self.path_aliases.get("sample_folder") or "").strip()
+            si = (self.path_aliases.get("sample_images") or "").strip()
+            if sf and not si:
+                self.path_aliases["sample_images"] = sf
+                self._log(f"Alias ajouté : sample_images -> {sf}")
+        except Exception as e:
+            self._log(f"⚠️ Normalisation alias échouée: {e}")
 
     # ------------------------------------------------------------------
     # Flask routes
@@ -157,9 +169,11 @@ class FlaskBridgeServer:
             if auth:
                 return auth
             data = request.get_json(force=True, silent=True) or {}
-            for k, v in data.items():
-                self.path_aliases[k] = (v or "").strip()
-            return jsonify(self.path_aliases)
+            for k, v in (data.items() if isinstance(data, dict) else []):
+                if isinstance(v, str):
+                    self.path_aliases[k] = v.strip()
+            self._normalize_aliases()
+            return jsonify(self.path_aliases), 200
 
         @app.post("/scrape")
         def scrape() -> Any:
@@ -472,6 +486,7 @@ class FlaskBridgeServer:
             }
         )
         self.jobs = JobManager(max_workers=max_workers)
+        self._normalize_aliases()
         self._server = StoppableWSGIServer(self.app, "0.0.0.0", port)
         self._server.start()
         self._log(f"Serveur lancé sur le port {port}")
