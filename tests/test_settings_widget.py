@@ -1,7 +1,6 @@
 from pathlib import Path
 import sys
 import os
-import subprocess
 import pytest
 
 QtWidgets = pytest.importorskip("PySide6.QtWidgets")
@@ -18,18 +17,25 @@ from MOTEUR.scraping.utils import update
 
 
 def test_update_button_triggers_git_pull(monkeypatch):
-    calls = {}
+    started = {}
 
-    def fake_run(cmd, **kwargs):
-        calls["cmd"] = cmd
-        return subprocess.CompletedProcess(cmd, 0, "", "")
-
-    monkeypatch.setattr(subprocess, "run", fake_run)
     app = QApplication.instance() or QApplication([])
     widget = ScrapingSettingsWidget(show_maintenance=True)
+
+    def fake_start(program, arguments):
+        started["program"] = program
+        started["arguments"] = list(arguments)
+
+    def fake_waitForStarted(timeout):
+        return True
+
+    monkeypatch.setattr(widget._git_proc, "start", fake_start)
+    monkeypatch.setattr(widget._git_proc, "waitForStarted", fake_waitForStarted)
+
     btn = widget.findChild(QtWidgets.QPushButton, "btn_update")
     btn.click()
     widget.close()
 
-    expected = ["git", "-C", str(update.PROJECT_ROOT), "pull", "origin", "main"]
-    assert calls["cmd"] == expected
+    assert started["program"] == "git"
+    assert started["arguments"] == ["pull", "origin", "main"]
+    assert widget._git_proc.workingDirectory() == str(update.PROJECT_ROOT)
