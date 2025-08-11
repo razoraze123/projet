@@ -57,6 +57,8 @@ class FlaskServerWidget(QWidget):
         self.console.setReadOnly(True)
         copyurl = QPushButton("Copier URL")
         copyurl.clicked.connect(self._copy_url)
+        self.test_health_btn = QPushButton("Test health")
+        self.test_health_btn.clicked.connect(self._test_health)
 
         # image actions
         self.source_folder = QLineEdit()
@@ -98,6 +100,7 @@ class FlaskServerWidget(QWidget):
         btn.addWidget(self.start)
         btn.addWidget(self.stop)
         btn.addWidget(copyurl)
+        btn.addWidget(self.test_health_btn)
 
         lay = QVBoxLayout(self)
         for row in (top, k, n, o, r, btn):
@@ -207,6 +210,24 @@ class FlaskServerWidget(QWidget):
             self._append("🛑 Serveur arrêté")
         except Exception as e:  # pragma: no cover - UI feedback
             self._append(f"❌ Erreur arrêt : {e}")
+
+    @Slot()
+    def _test_health(self) -> None:
+        try:
+            port = int(self.port.text() or 5001)
+            base = (
+                self.server.public_url.strip()
+                if self.expose.isChecked() and self.server.public_url.strip()
+                else f"http://localhost:{port}"
+            )
+            url = base.rstrip("/") + "/health"
+            r = requests.get(
+                url, headers={"ngrok-skip-browser-warning": "1"}, timeout=10
+            )
+            self._append(f"[health] GET {url} -> {r.status_code}")
+            self._append(r.text or "<no body>")
+        except Exception as e:
+            self._append(f"❌ health error: {e}")
 
     # ------------------------------------------------------------------
     @Slot()

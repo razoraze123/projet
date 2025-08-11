@@ -117,12 +117,15 @@ class FlaskBridgeServer:
 
         @app.get("/health")
         def health() -> Any:
-            return jsonify(
-                {
-                    "ok": True,
-                    "version": "1.0",
-                    "time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                }
+            return (
+                jsonify(
+                    {
+                        "ok": True,
+                        "version": "1.0",
+                        "time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                    }
+                ),
+                200,
             )
 
         def require_key():
