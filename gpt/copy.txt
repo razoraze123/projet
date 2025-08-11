@@ -2311,6 +2311,8 @@ from MOTEUR.compta.ventes.widget import VenteWidget
 from MOTEUR.compta.accounting.widget import AccountWidget
 from MOTEUR.scraping.widgets.profile_widget import ProfileWidget
 from MOTEUR.compta.dashboard.widget import DashboardWidget
+from MOTEUR.ui.settings_widget import SettingsWidget
+from MOTEUR.ui.theme import load_theme, apply_theme
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -2669,7 +2671,7 @@ class MainWindow(QMainWindow):
         self.ventes_page = VenteWidget()
         self.stack.addWidget(self.ventes_page)
 
-        self.settings_page = ScrapingSettingsWidget(show_maintenance=True)
+        self.settings_page = SettingsWidget()
         self.stack.addWidget(self.settings_page)
 
         main_layout.addWidget(sidebar_container, 1)
@@ -2765,6 +2767,7 @@ class MainWindow(QMainWindow):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+    apply_theme(load_theme())
     interface = MainWindow()
     interface.show()
     sys.exit(app.exec())
