@@ -156,18 +156,23 @@ class FlaskBridgeServer:
             if auth:
                 return auth
             data = request.get_json(force=True, silent=True) or {}
-            src_folder = (data.get("source") or {}).get("folder")
+            src = ((data.get("source") or {}).get("folder") or "").strip()
             ops = data.get("operations") or []
-            target_subdir = data.get("target_subdir") or "image fait par gpt"
-            if not src_folder or not ops:
+            target_subdir = (data.get("target_subdir") or "image fait par gpt").strip()
+            if not src or not ops:
                 return (
-                    jsonify({"error": "invalid_request", "detail": "source & operations required"}),
+                    jsonify(
+                        {
+                            "error": "invalid_request",
+                            "detail": "source.folder & operations required",
+                        }
+                    ),
                     400,
                 )
-            st = self.jobs.submit(
-                self._run_image_action_job, src_folder, ops, target_subdir
+            st = self.jobs.submit(self._run_image_action_job, src, ops, target_subdir)
+            self._log(
+                f"Job {st.job_id} image-edit: {src} -> {target_subdir} ({len(ops)} ops)"
             )
-            self._log(f"Job {st.job_id} accepté pour actions images")
             return jsonify({"job_id": st.job_id, "message": "accepted"}), 202
 
         @app.get("/jobs/<job_id>")
@@ -300,66 +305,78 @@ class FlaskBridgeServer:
     def _run_image_action_job(
         self, st: JobStatus, src_folder: str, ops: list[dict], target_subdir: str
     ) -> None:
+        from pathlib import Path
+        from time import sleep
+        from PIL import Image, ImageFilter
+        import datetime as _dt
+
         st.status = "running"
         st.started_at = _dt.datetime.utcnow().isoformat() + "Z"
         try:
-            src = Path(src_folder).expanduser()
-            if not src.is_absolute():
-                src = (Path.cwd() / src).resolve()
+            rate = int(self.default_flags.get("rate_limit", 0) or 0)  # images/min
+            delay = (60.0 / rate) if rate > 0 else 0.0
+
+            src = Path(src_folder)
+            if not src.exists():
+                raise FileNotFoundError(f"source not found: {src}")
+
+            dst = src / (target_subdir or "image fait par gpt")
+            dst.mkdir(parents=True, exist_ok=True)
+
             files = [
-                f
-                for f in sorted(src.iterdir())
-                if f.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"}
+                p for p in src.iterdir() if p.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"}
             ]
             st.progress["found"] = len(files)
-            out_dir = src / (target_subdir or "image fait par gpt")
-            out_dir.mkdir(parents=True, exist_ok=True)
-            st.output_dir = str(out_dir)
-            delay = 0.0
-            rate = self.default_flags.get("rate_limit", 0)
-            if rate:
-                delay = 60.0 / max(rate, 1)
-            from PIL import Image, ImageFilter
+            samples: list[str] = []
 
-            for img_path in files:
+            def apply_ops(img: Image.Image) -> Image.Image:
+                out = img
+                for op in ops:
+                    kind = str(op.get("op", "")).lower()
+                    if kind == "resize":
+                        w = int(op.get("width", 0))
+                        h = int(op.get("height", 0))
+                        keep = bool(op.get("keep_ratio", True))
+                        if w > 0 and h > 0:
+                            if keep:
+                                out = out.copy()
+                                out.thumbnail((w, h))
+                            else:
+                                out = out.resize((w, h))
+                    elif kind == "sharpen":
+                        amt = float(op.get("amount", 0.6))
+                        out = out.filter(
+                            ImageFilter.UnsharpMask(percent=int(amt * 150), radius=2)
+                        )
+                    elif kind == "remove_bg":
+                        out = out.convert("RGBA")
+                        bg = Image.new("RGBA", out.size, (255, 255, 255, 255))
+                        bg.paste(out, mask=out.split()[-1] if out.mode == "RGBA" else None)
+                        out = bg.convert("RGB")
+                return out
+
+            for i, f in enumerate(files, 1):
                 try:
-                    img = Image.open(img_path)
-                    for op in ops:
-                        name = op.get("op")
-                        if name == "resize":
-                            w = int(op.get("width", 0))
-                            h = int(op.get("height", 0))
-                            keep = bool(op.get("keep_ratio"))
-                            if w and h:
-                                if keep:
-                                    img.thumbnail((w, h))
-                                else:
-                                    img = img.resize((w, h))
-                        elif name == "sharpen":
-                            amt = float(op.get("amount", 0))
-                            img = img.filter(
-                                ImageFilter.UnsharpMask(
-                                    percent=int(amt * 150), radius=2
-                                )
-                            )
-                        elif name == "remove_bg":
-                            img = img.convert("RGBA")
-                            bg = Image.new("RGBA", img.size, (255, 255, 255, 255))
-                            bg.paste(img, mask=img.split()[3])
-                            img = bg.convert("RGB")
-                    img.save(out_dir / img_path.name)
+                    with Image.open(f) as im:
+                        out = apply_ops(im)
+                        out_path = dst / f.name
+                        out.save(out_path)
                     st.progress["downloaded"] += 1
-                    if len(st.sample_images) < 5:
-                        st.sample_images.append(img_path.name)
-                except Exception as exc:
+                    if len(samples) < 5:
+                        samples.append(out_path.name)
+                except Exception as e:
                     st.progress["failed"] += 1
-                    st.errors.append({"file": img_path.name, "error": str(exc)})
+                    st.errors.append({"file": f.name, "error": str(e)})
                 if delay:
-                    time.sleep(delay)
+                    sleep(delay)
+
+            st.sample_images = samples
+            st.output_dir = str(dst)
             st.status = "done"
-        except Exception as exc:  # pragma: no cover - hard to trigger in tests
+        except Exception as exc:
             st.status = "error"
             st.message = str(exc)
+            st.errors.append({"error": str(exc), "folder": src_folder})
         finally:
             st.finished_at = _dt.datetime.utcnow().isoformat() + "Z"
 
