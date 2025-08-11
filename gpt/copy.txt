@@ -603,7 +603,7 @@ def delete_profile(name: str) -> bool:
 ```
 
 # MOTEUR/scraping/server/__init__.py
-Description: Utilities for exposing the scraping features through a Flask bridge.
+Description: Source code for MOTEUR/scraping/server/__init__.py
 ```python
 """Utilities for exposing the scraping features through a Flask bridge."""
 
@@ -986,31 +986,72 @@ import sys
 import subprocess
 import time
 
+def _build_relaunch_argv() -> list[str]:
+    py = sys.executable or "python"
+    # Cas PyInstaller / frozen
+    if getattr(sys, "frozen", False):
+        return [py] + sys.argv[1:]
+    # Script direct
+    script = os.path.abspath(sys.argv[0]) if sys.argv and sys.argv[0] else ""
+    if script and script.lower().endswith((".py", ".pyw")):
+        return [py, script] + sys.argv[1:]
+    # Fallback (ex: python -m package)
+    return [py] + sys.argv[1:]
 
-def relaunch_current_process(delay_sec: float = 0.2) -> None:
-    """
-    Relance ce programme avec les mêmes arguments, puis rend la main.
-    Ne quitte PAS le process courant (laisse l'appelant le faire).
-    """
-    python = sys.executable
-    script = os.path.abspath(sys.argv[0])
-    argv = [python, script] + sys.argv[1:]
+def relaunch_current_process(delay_sec: float = 0.25, *, cwd: str | None = None) -> None:
+    argv = _build_relaunch_argv()
     try:
-        creationflags = 0
-        # Évite une console parasite sur Windows
+        print(f"[restart] sys.executable = {sys.executable}")
+        print(f"[restart] sys.argv       = {sys.argv}")
+        print(f"[restart] relaunch argv  = {argv}")
+        if cwd is None:
+            cwd = os.getcwd()
+        print(f"[restart] cwd            = {cwd}")
+
+        popen_kwargs = dict(
+            cwd=cwd,
+            close_fds=(os.name != "nt"),
+            start_new_session=(os.name != "nt"),
+        )
         if os.name == "nt":
             CREATE_NEW_PROCESS_GROUP = 0x00000200
             DETACHED_PROCESS = 0x00000008
-            creationflags = DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
-        subprocess.Popen(
-            argv,
-            close_fds=(os.name != "nt"),
-            creationflags=creationflags or 0
-        )
+            popen_kwargs["creationflags"] = DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+        subprocess.Popen(argv, **popen_kwargs)
     except Exception as e:
         print(f"[restart] Erreur au relancement: {e}")
-    # petit délai pour laisser le temps à la nouvelle instance de démarrer
     time.sleep(delay_sec)
+```
+
+# MOTEUR/scraping/utils/update.py
+Description: Source code for MOTEUR/scraping/utils/update.py
+```python
+from __future__ import annotations
+
+import subprocess
+from pathlib import Path
+
+# Determine the project root (three levels up from this file)
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+
+def pull_latest(branch: str = "main") -> subprocess.CompletedProcess:
+    """Pull the latest changes from the given branch.
+
+    Parameters
+    ----------
+    branch:
+        Name of the branch to pull from. Defaults to ``"main"``.
+
+    Returns
+    -------
+    subprocess.CompletedProcess
+        The result object from ``subprocess.run``.
+    """
+    return subprocess.run(
+        ["git", "-C", str(PROJECT_ROOT), "pull", "origin", branch],
+        capture_output=True,
+        text=True,
+    )
 ```
 
 # MOTEUR/scraping/widgets/__init__.py
@@ -1300,6 +1341,8 @@ class ImageScraperWidget(QWidget):
         self.export_data: list[dict[str, str]] = []
 
         self.file_edit = QLineEdit()
+        # ✅ Alias de compatibilité pour l'ancien code
+        self.url_edit = self.file_edit
         self.file_edit.setPlaceholderText("Fichier texte contenant les URLs")
         file_btn = QPushButton("Parcourir…")
         file_btn.clicked.connect(self._choose_file)
@@ -1507,8 +1550,6 @@ class ImageScraperWidget(QWidget):
             sys.stdout = old_stdout
             self.progress_bar.hide()
             self.start_btn.setEnabled(True)
-
-
 ```
 
 # MOTEUR/scraping/widgets/profile_widget.py
@@ -1645,7 +1686,6 @@ class ProfileWidget(QWidget):
                 self._load_profiles()
         except Exception:
             pass
-
 ```
 
 # MOTEUR/scraping/widgets/scrap_widget.py
@@ -1706,90 +1746,56 @@ class ScrapWidget(QWidget):
 
     def set_rename(self, enabled: bool) -> None:
         pass
-
 ```
 
 # MOTEUR/scraping/widgets/settings_widget.py
 Description: Source code for MOTEUR/scraping/widgets/settings_widget.py
 ```python
-from __future__ import annotations
-
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QPushButton, QMessageBox
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QMessageBox
 from PySide6.QtCore import Signal, Slot, QCoreApplication
-from PySide6.QtWidgets import QApplication
-
-from .flask_server_widget import FlaskServerWidget  # introspection douce
-from ..utils.restart import relaunch_current_process
 
 
 class ScrapingSettingsWidget(QWidget):
-    """
-    Onglet Paramètres scraping (sans maintenance par défaut).
-    Passer show_maintenance=True pour réactiver les boutons localement si besoin.
-    """
     module_toggled = Signal(str, bool)
     rename_toggled = Signal(bool)
 
     def __init__(self, modules_order=None, *, show_maintenance: bool = False):
         super().__init__()
+        from ..utils.restart import relaunch_current_process
+        from ..utils.update import pull_latest
+
         layout = QVBoxLayout(self)
+        # (conserver vos éléments existants ici)
+        _ = (modules_order or [])
 
-        self._show_maintenance = bool(show_maintenance)
-        self.btn_update = None
-        self.btn_restart = None
+        if show_maintenance:
+            row = QHBoxLayout()
+            btn_update = QPushButton("Mettre à jour")
+            btn_update.setObjectName("btn_update")
+            btn_restart = QPushButton("Redémarrer")
+            btn_restart.setObjectName("btn_restart")
+            row.addWidget(btn_update)
+            row.addWidget(btn_restart)
+            layout.addLayout(row)
 
-        if self._show_maintenance:
-            self.btn_update = QPushButton("Mettre à jour depuis GitHub")
-            self.btn_restart = QPushButton("Redémarrer l’application")
-            layout.addWidget(self.btn_update)
-            layout.addWidget(self.btn_restart)
-            self.btn_restart.clicked.connect(self._on_restart_clicked)
+            @Slot()
+            def _on_update_clicked():
+                pull_latest()
 
-        layout.addStretch(1)
+            @Slot()
+            def _on_restart_clicked():
+                ret = QMessageBox.question(
+                    self, "Redémarrer",
+                    "Voulez-vous vraiment redémarrer l’application ?",
+                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+                )
+                if ret != QMessageBox.Yes:
+                    return
+                relaunch_current_process(delay_sec=0.3)
+                QCoreApplication.quit()
 
-    # ------------------------------------------------------------------
-    def _find_flask_widgets(self) -> list[FlaskServerWidget]:
-        """Retourne tous les FlaskServerWidget présents dans l'app (best effort)."""
-        app = QApplication.instance()
-        if not app:
-            return []
-        found = []
-        for w in app.allWidgets():
-            try:
-                if isinstance(w, FlaskServerWidget):
-                    found.append(w)
-            except Exception:
-                pass
-        return found
-
-    @Slot()
-    def _on_restart_clicked(self) -> None:
-        reply = QMessageBox.question(
-            self,
-            "Redémarrer",
-            "Voulez-vous vraiment redémarrer l’application ?\n"
-            "Les opérations en cours seront arrêtées.",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
-        )
-        if reply != QMessageBox.Yes:
-            return
-
-        # Arrêt propre des serveurs Flask/ngrok si présents
-        try:
-            for fw in self._find_flask_widgets():
-                try:
-                    fw._stop()  # utilise la méthode existante du widget
-                    print("[restart] Serveur Flask/ngrok arrêté.")
-                except Exception as e:
-                    print(f"[restart] Impossible d’arrêter Flask: {e}")
-        except Exception as e:
-            print(f"[restart] Recherche des widgets Flask échouée: {e}")
-
-        # Relance du process puis fermeture de l’actuel
-        print("[restart] Relance de l’application…")
-        relaunch_current_process(delay_sec=0.2)
-        QCoreApplication.quit()
+            btn_update.clicked.connect(_on_update_clicked)
+            btn_restart.clicked.connect(_on_restart_clicked)
 ```
 
 # MOTEUR/scraping/widgets/storage_widget.py
@@ -1914,15 +1920,18 @@ class WooCommerceProductWidget(QWidget):
     @staticmethod
     def _clean_image_urls(urls: list[str]) -> list[str]:
         """Remove duplicate image URLs using exact and prefix based checks."""
-        # Remove exact duplicates first
-        unique_urls = list(set(urls))
+        unique_urls: list[str] = []
+        for url in urls:
+            if url not in unique_urls:
+                unique_urls.append(url)
 
         prefix_set: set[str] = set()
         final_images: list[str] = []
 
-        for url in sorted(unique_urls):
+        for url in unique_urls:
             filename = url.split("/")[-1]
-            prefix = filename.split("_")[0].split("-56cm")[0]
+            base = filename.rsplit(".", 1)[0]
+            prefix = base.split("_")[0].split("-56cm")[0]
 
             if prefix not in prefix_set:
                 final_images.append(url)
@@ -2134,7 +2143,7 @@ class WooCommerceProductWidget(QWidget):
                     self.table.setItem(current_row, sku_col, QTableWidgetItem(sku_var))
                     self.table.setItem(current_row, name_col, QTableWidgetItem(name_var))
                     var_img = self.BASE_IMAGE_URL + f"{product_slug}-{var_slug}.jpg"
-                self.table.setItem(current_row, img_col, QTableWidgetItem(var_img))
+                    self.table.setItem(current_row, img_col, QTableWidgetItem(var_img))
             else:
                 row = self.table.rowCount()
                 self.table.insertRow(row)
@@ -2154,12 +2163,10 @@ class WooCommerceProductWidget(QWidget):
                         img_col,
                         QTableWidgetItem(", ".join(images)),
                     )
-
-
 ```
 
 # README_flask_bridge.md
-Description: Flask Bridge
+Description: Source code for README_flask_bridge.md
 ```
 # Flask Bridge
 
@@ -2230,7 +2237,6 @@ try:
         QLabel,
         QStackedWidget,
         QSizePolicy,
-        QMessageBox,
         QFrame,
         QScrollArea,
     )
@@ -2247,8 +2253,6 @@ from MOTEUR.compta.ventes.widget import VenteWidget
 from MOTEUR.compta.accounting.widget import AccountWidget
 from MOTEUR.scraping.widgets.profile_widget import ProfileWidget
 from MOTEUR.compta.dashboard.widget import DashboardWidget
-from MOTEUR.scraping.utils.restart import relaunch_current_process
-import subprocess
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -2613,25 +2617,7 @@ class MainWindow(QMainWindow):
         self.ventes_page = VenteWidget()
         self.stack.addWidget(self.ventes_page)
 
-        self.settings_page = QWidget()
-        settings_layout = QVBoxLayout(self.settings_page)
-        title_label = QLabel(
-            "Paramètres \u2013 Maintenance du projet"
-        )
-        title_label.setAlignment(Qt.AlignCenter)
-        update_button = QPushButton(
-            "\ud83d\udd04 Mettre \u00e0 jour depuis GitHub"
-        )
-        update_button.clicked.connect(self.update_from_github)
-        refresh_button = QPushButton(
-            "\ud83d\udd04 Redémarrer l'application"
-        )
-        refresh_button.clicked.connect(self.refresh_scraping)
-        settings_layout.addStretch()
-        settings_layout.addWidget(title_label)
-        settings_layout.addWidget(update_button, alignment=Qt.AlignCenter)
-        settings_layout.addWidget(refresh_button, alignment=Qt.AlignCenter)
-        settings_layout.addStretch()
+        self.settings_page = ScrapingSettingsWidget(show_maintenance=True)
         self.stack.addWidget(self.settings_page)
 
         main_layout.addWidget(sidebar_container, 1)
@@ -2726,52 +2712,6 @@ class MainWindow(QMainWindow):
         self.settings_btn.setChecked(True)
         self.stack.setCurrentWidget(self.settings_page)
 
-    def update_from_github(self) -> None:
-        result = subprocess.run(
-            ["git", "pull", "origin", "main"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
-
-        if result.returncode != 0:
-            QMessageBox.critical(
-                self,
-                "Mise à jour",
-                f"❌ Échec de mise à jour\n{result.stderr}",
-            )
-            return
-
-        logs = result.stdout.strip()
-        if "Already up to date" in logs or "Already up-to-date" in logs:
-            QMessageBox.information(self, "Mise à jour", logs)
-            return
-
-        QMessageBox.information(
-            self,
-            "Mise à jour",
-            f"✅ Mise à jour appliquée:\n{logs}\n\nL'application va redémarrer",
-        )
-        relaunch_current_process()
-        QApplication.quit()
-
-    @Slot()
-    def refresh_scraping(self) -> None:
-        page = self.scrap_page.images_widget
-        page.start_btn.setEnabled(True)
-        page.console.clear()
-        page.progress_bar.setValue(0)
-        page.progress_bar.hide()
-        page.url_edit.clear()
-        page.folder_edit.clear()
-
-        QMessageBox.information(
-            self,
-            "Redémarrage",
-            "L'application va redémarrer pour appliquer les changements.",
-        )
-        relaunch_current_process()
-        QApplication.quit()
 
 
 if __name__ == "__main__":
@@ -2788,12 +2728,6 @@ Description: Source code for localapp/icons/achat.svg
   <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
 </svg>
 ```
-
-# Changes Summary
-localapp/app.py
-- L34: added import `from MOTEUR.scraping.utils.restart import relaunch_current_process`
-- L341-L344: pass `show_maintenance=False` to `ScrapingSettingsWidget`
-- L556 & L571: replaced `subprocess.Popen([sys.executable] + sys.argv)` with `relaunch_current_process()`
 
 # localapp/icons/bilan.svg
 Description: Source code for localapp/icons/bilan.svg
@@ -2888,7 +2822,7 @@ pyngrok
 ```
 
 # tests/manual_profiles_test.md
-Description: Manual Profiles Test
+Description: Source code for tests/manual_profiles_test.md
 ```
 # Manual Profiles Test
 
@@ -2939,7 +2873,6 @@ def test_download_name_cleanup(tmp_path, monkeypatch):
 
     names = sorted(p.name for p in tmp_path.iterdir())
     assert names == ['bob-avec-lacet.jpg', 'bob-avec-lacet_1.jpg']
-
 ```
 
 # tests/test_image_scraper_widget.py
@@ -3288,6 +3221,46 @@ def test_scrape_variants_generate_urls(monkeypatch):
     }
 ```
 
+# tests/test_settings_widget.py
+Description: Source code for tests/test_settings_widget.py
+```python
+from pathlib import Path
+import sys
+import os
+import subprocess
+import pytest
+
+QtWidgets = pytest.importorskip("PySide6.QtWidgets")
+QApplication = QtWidgets.QApplication
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+from MOTEUR.scraping.widgets.settings_widget import ScrapingSettingsWidget
+from MOTEUR.scraping.utils import update
+
+
+def test_update_button_triggers_git_pull(monkeypatch):
+    calls = {}
+
+    def fake_run(cmd, **kwargs):
+        calls["cmd"] = cmd
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    app = QApplication.instance() or QApplication([])
+    widget = ScrapingSettingsWidget(show_maintenance=True)
+    btn = widget.findChild(QtWidgets.QPushButton, "btn_update")
+    btn.click()
+    widget.close()
+
+    expected = ["git", "-C", str(update.PROJECT_ROOT), "pull", "origin", "main"]
+    assert calls["cmd"] == expected
+```
+
 # tests/test_storage_integration.py
 Description: Source code for tests/test_storage_integration.py
 ```python
@@ -3354,12 +3327,6 @@ def test_image_scraper_adds_to_storage(tmp_path, monkeypatch):
     widget.close()
     storage.close()
 ```
-
-# Summary of changes
-localapp/app.py
-- L34: added import `from MOTEUR.scraping.utils.restart import relaunch_current_process`
-- L341-L344: passed `show_maintenance=False` to `ScrapingSettingsWidget`
-- L556 & L571: replaced subprocess restart calls with `relaunch_current_process()`
 
 # tests/test_storage_widget.py
 Description: Source code for tests/test_storage_widget.py
@@ -3580,61 +3547,4 @@ def test_fill_multiple_times_no_duplicates(tmp_path, monkeypatch):
     widget.close()
     storage.close()
 ```
-
-=== MOTEUR/scraping/widgets/image_widget.py ===
- + (L59) self.url_edit = self.file_edit
-
-=== MOTEUR/scraping/utils/restart.py ===
-(new file content pasted below)
-from __future__ import annotations
-import os
-import sys
-import subprocess
-import time
-
-def _build_relaunch_argv() -> list[str]:
-    py = sys.executable or "python"
-    # Cas PyInstaller / frozen
-    if getattr(sys, "frozen", False):
-        return [py] + sys.argv[1:]
-    # Script direct
-    script = os.path.abspath(sys.argv[0]) if sys.argv and sys.argv[0] else ""
-    if script and script.lower().endswith((".py", ".pyw")):
-        return [py, script] + sys.argv[1:]
-    # Fallback (ex: python -m package)
-    return [py] + sys.argv[1:]
-
-def relaunch_current_process(delay_sec: float = 0.25, *, cwd: str | None = None) -> None:
-    argv = _build_relaunch_argv()
-    try:
-        print(f"[restart] sys.executable = {sys.executable}")
-        print(f"[restart] sys.argv       = {sys.argv}")
-        print(f"[restart] relaunch argv  = {argv}")
-        if cwd is None:
-            cwd = os.getcwd()
-        print(f"[restart] cwd            = {cwd}")
-
-        popen_kwargs = dict(
-            cwd=cwd,
-            close_fds=(os.name != "nt"),
-            start_new_session=(os.name != "nt"),
-        )
-        if os.name == "nt":
-            CREATE_NEW_PROCESS_GROUP = 0x00000200
-            DETACHED_PROCESS = 0x00000008
-            popen_kwargs["creationflags"] = DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
-        subprocess.Popen(argv, **popen_kwargs)
-    except Exception as e:
-        print(f"[restart] Erreur au relancement: {e}")
-    time.sleep(delay_sec)
-
-=== MOTEUR/scraping/widgets/settings_widget.py ===
- + constructor signature: def __init__(..., show_maintenance: bool = False)
- + added maintenance buttons block (if show_maintenance)
- + _on_restart_clicked() calling relaunch_current_process() then QCoreApplication.quit()
-
-=== MOTEUR/scraping/widgets/woocommerce_widget.py ===
- + fix _clean_image_urls to remove extension before prefix
- + set variant image cell inside the for-loop
- + preserve original order when removing duplicate image URLs
 
