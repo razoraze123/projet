@@ -4,21 +4,25 @@ Description: Source code for .gitignore
 __pycache__/
 *.pyc
 images/
+
 ```
 
 # MOTEUR/__init__.py
 Description: Source code for MOTEUR/__init__.py
 ```python
+
 ```
 
 # MOTEUR/compta/__init__.py
 Description: Source code for MOTEUR/compta/__init__.py
 ```python
+
 ```
 
 # MOTEUR/compta/accounting/__init__.py
 Description: Source code for MOTEUR/compta/accounting/__init__.py
 ```python
+
 ```
 
 # MOTEUR/compta/accounting/widget.py
@@ -30,11 +34,13 @@ from PySide6.QtCore import Signal
 
 class AccountWidget(QWidget):
     accounts_updated = Signal()
+
 ```
 
 # MOTEUR/compta/achats/__init__.py
 Description: Source code for MOTEUR/compta/achats/__init__.py
 ```python
+
 ```
 
 # MOTEUR/compta/achats/widget.py
@@ -46,11 +52,13 @@ from PySide6.QtWidgets import QWidget
 class AchatWidget(QWidget):
     def refresh_accounts(self) -> None:
         pass
+
 ```
 
 # MOTEUR/compta/dashboard/__init__.py
 Description: Source code for MOTEUR/compta/dashboard/__init__.py
 ```python
+
 ```
 
 # MOTEUR/compta/dashboard/widget.py
@@ -72,6 +80,7 @@ class DashboardWidget(QWidget):
 
     def refresh(self) -> None:
         pass
+
 ```
 
 # MOTEUR/compta/parameters.py
@@ -82,6 +91,7 @@ from PySide6.QtWidgets import QWidget
 
 class JournalsWidget(QWidget):
     pass
+
 ```
 
 # MOTEUR/compta/revision.py
@@ -92,6 +102,7 @@ from PySide6.QtWidgets import QWidget
 
 class RevisionTab(QWidget):
     pass
+
 ```
 
 # MOTEUR/compta/suppliers.py
@@ -102,11 +113,13 @@ from PySide6.QtWidgets import QWidget
 
 class SupplierTab(QWidget):
     pass
+
 ```
 
 # MOTEUR/compta/ventes/__init__.py
 Description: Source code for MOTEUR/compta/ventes/__init__.py
 ```python
+
 ```
 
 # MOTEUR/compta/ventes/widget.py
@@ -117,16 +130,19 @@ from PySide6.QtWidgets import QWidget
 
 class VenteWidget(QWidget):
     pass
+
 ```
 
 # MOTEUR/scraping/__init__.py
 Description: Source code for MOTEUR/scraping/__init__.py
 ```python
+
 ```
 
 # MOTEUR/scraping/bus/__init__.py
 Description: Source code for MOTEUR/scraping/bus/__init__.py
 ```python
+
 ```
 
 # MOTEUR/scraping/bus/event_bus.py
@@ -142,6 +158,7 @@ class EventBus(QObject):
 
 # singleton
 bus = EventBus()
+
 ```
 
 # MOTEUR/scraping/history.py
@@ -210,6 +227,7 @@ def load_last_used() -> Dict[str, str]:
     except Exception:
         pass
     return {"url": "", "folder": ""}
+
 ```
 
 # MOTEUR/scraping/image_scraper.py
@@ -515,6 +533,7 @@ def scrape_variants(driver: webdriver.Chrome) -> dict[str, str]:
 
 if __name__ == "__main__":
     scrape_images("https://exemple.com/produit", ".product-image img")
+
 ```
 
 # MOTEUR/scraping/profile_manager.py
@@ -592,6 +611,7 @@ def delete_profile(name: str) -> bool:
         return False
     save_profiles(new_profiles)
     return True
+
 ```
 
 # MOTEUR/scraping/server/__init__.py
@@ -602,6 +622,7 @@ Description: Source code for MOTEUR/scraping/server/__init__.py
 from .flask_server import FlaskBridgeServer, JobManager, JobStatus
 
 __all__ = ["FlaskBridgeServer", "JobManager", "JobStatus"]
+
 ```
 
 # MOTEUR/scraping/server/flask_server.py
@@ -759,6 +780,31 @@ class FlaskBridgeServer:
             self._log(f"Job {st.job_id} accepté pour {url}")
             return jsonify({"job_id": st.job_id, "message": "accepted"}), 202
 
+        @app.post("/actions/image-edit")
+        def image_edit() -> Any:
+            auth = require_key()
+            if auth:
+                return auth
+            data = request.get_json(force=True, silent=True) or {}
+            src = ((data.get("source") or {}).get("folder") or "").strip()
+            ops = data.get("operations") or []
+            target_subdir = (data.get("target_subdir") or "image fait par gpt").strip()
+            if not src or not ops:
+                return (
+                    jsonify(
+                        {
+                            "error": "invalid_request",
+                            "detail": "source.folder & operations required",
+                        }
+                    ),
+                    400,
+                )
+            st = self.jobs.submit(self._run_image_action_job, src, ops, target_subdir)
+            self._log(
+                f"Job {st.job_id} image-edit: {src} -> {target_subdir} ({len(ops)} ops)"
+            )
+            return jsonify({"job_id": st.job_id, "message": "accepted"}), 202
+
         @app.get("/jobs/<job_id>")
         def job_status(job_id: str) -> Any:
             auth = require_key()
@@ -886,6 +932,84 @@ class FlaskBridgeServer:
         finally:
             st.finished_at = _dt.datetime.utcnow().isoformat() + "Z"
 
+    def _run_image_action_job(
+        self, st: JobStatus, src_folder: str, ops: list[dict], target_subdir: str
+    ) -> None:
+        from pathlib import Path
+        from time import sleep
+        from PIL import Image, ImageFilter
+        import datetime as _dt
+
+        st.status = "running"
+        st.started_at = _dt.datetime.utcnow().isoformat() + "Z"
+        try:
+            rate = int(self.default_flags.get("rate_limit", 0) or 0)  # images/min
+            delay = (60.0 / rate) if rate > 0 else 0.0
+
+            src = Path(src_folder)
+            if not src.exists():
+                raise FileNotFoundError(f"source not found: {src}")
+
+            dst = src / (target_subdir or "image fait par gpt")
+            dst.mkdir(parents=True, exist_ok=True)
+
+            files = [
+                p for p in src.iterdir() if p.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"}
+            ]
+            st.progress["found"] = len(files)
+            samples: list[str] = []
+
+            def apply_ops(img: Image.Image) -> Image.Image:
+                out = img
+                for op in ops:
+                    kind = str(op.get("op", "")).lower()
+                    if kind == "resize":
+                        w = int(op.get("width", 0))
+                        h = int(op.get("height", 0))
+                        keep = bool(op.get("keep_ratio", True))
+                        if w > 0 and h > 0:
+                            if keep:
+                                out = out.copy()
+                                out.thumbnail((w, h))
+                            else:
+                                out = out.resize((w, h))
+                    elif kind == "sharpen":
+                        amt = float(op.get("amount", 0.6))
+                        out = out.filter(
+                            ImageFilter.UnsharpMask(percent=int(amt * 150), radius=2)
+                        )
+                    elif kind == "remove_bg":
+                        out = out.convert("RGBA")
+                        bg = Image.new("RGBA", out.size, (255, 255, 255, 255))
+                        bg.paste(out, mask=out.split()[-1] if out.mode == "RGBA" else None)
+                        out = bg.convert("RGB")
+                return out
+
+            for i, f in enumerate(files, 1):
+                try:
+                    with Image.open(f) as im:
+                        out = apply_ops(im)
+                        out_path = dst / f.name
+                        out.save(out_path)
+                    st.progress["downloaded"] += 1
+                    if len(samples) < 5:
+                        samples.append(out_path.name)
+                except Exception as e:
+                    st.progress["failed"] += 1
+                    st.errors.append({"file": f.name, "error": str(e)})
+                if delay:
+                    sleep(delay)
+
+            st.sample_images = samples
+            st.output_dir = str(dst)
+            st.status = "done"
+        except Exception as exc:
+            st.status = "error"
+            st.message = str(exc)
+            st.errors.append({"error": str(exc), "folder": src_folder})
+        finally:
+            st.finished_at = _dt.datetime.utcnow().isoformat() + "Z"
+
     # ------------------------------------------------------------------
     # public API
     def start(
@@ -961,11 +1085,13 @@ class FlaskBridgeServer:
         """Return ``True`` if the server is currently running."""
 
         return self._server is not None
+
 ```
 
 # MOTEUR/scraping/utils/__init__.py
 Description: Source code for MOTEUR/scraping/utils/__init__.py
 ```python
+
 ```
 
 # MOTEUR/scraping/utils/restart.py
@@ -1012,6 +1138,7 @@ def relaunch_current_process(delay_sec: float = 0.25, *, cwd: str | None = None)
     except Exception as e:
         print(f"[restart] Erreur au relancement: {e}")
     time.sleep(delay_sec)
+
 ```
 
 # MOTEUR/scraping/utils/update.py
@@ -1043,11 +1170,13 @@ def pull_latest(branch: str = "main") -> subprocess.CompletedProcess:
         capture_output=True,
         text=True,
     )
+
 ```
 
 # MOTEUR/scraping/widgets/__init__.py
 Description: Source code for MOTEUR/scraping/widgets/__init__.py
 ```python
+
 ```
 
 # MOTEUR/scraping/widgets/flask_server_widget.py
@@ -1069,7 +1198,7 @@ from PySide6.QtWidgets import (
     QApplication,
 )
 from PySide6.QtCore import Slot
-import json
+import json, requests
 import os
 import secrets
 
@@ -1086,6 +1215,7 @@ class FlaskServerWidget(QWidget):
         self.server = FlaskBridgeServer(on_log=self._append)
         self._build_ui()
         self._load_cfg()
+        self._last_job_id = ""
 
     # ------------------------------------------------------------------
     def _build_ui(self) -> None:
@@ -1111,6 +1241,17 @@ class FlaskServerWidget(QWidget):
         self.console.setReadOnly(True)
         copyurl = QPushButton("Copier URL")
         copyurl.clicked.connect(self._copy_url)
+
+        # image actions
+        self.source_folder = QLineEdit()
+        self.target_subdir = QLineEdit("image fait par gpt")
+        self.operations_json = QLineEdit(
+            '[{"op":"resize","width":1024,"height":1024,"keep_ratio":true}]'
+        )
+        self.launch_action_btn = QPushButton("Lancer action")
+        self.launch_action_btn.clicked.connect(self._launch_action)
+        self.status_btn = QPushButton("Status job")
+        self.status_btn.clicked.connect(self._status_job)
 
         # layouts
         top = QHBoxLayout()
@@ -1144,6 +1285,22 @@ class FlaskServerWidget(QWidget):
 
         lay = QVBoxLayout(self)
         for row in (top, k, n, o, r, btn):
+            lay.addLayout(row)
+
+        act1 = QHBoxLayout()
+        act1.addWidget(QLabel("Source folder"))
+        act1.addWidget(self.source_folder)
+        act2 = QHBoxLayout()
+        act2.addWidget(QLabel("Target subdir"))
+        act2.addWidget(self.target_subdir)
+        act3 = QHBoxLayout()
+        act3.addWidget(QLabel("Operations (JSON)"))
+        act3.addWidget(self.operations_json)
+        actb = QHBoxLayout()
+        actb.addWidget(self.launch_action_btn)
+        actb.addWidget(self.status_btn)
+
+        for row in (act1, act2, act3, actb):
             lay.addLayout(row)
         lay.addWidget(self.status_label)
         lay.addWidget(self.url_label)
@@ -1234,6 +1391,47 @@ class FlaskServerWidget(QWidget):
             self._append("🛑 Serveur arrêté")
         except Exception as e:  # pragma: no cover - UI feedback
             self._append(f"❌ Erreur arrêt : {e}")
+
+    # ------------------------------------------------------------------
+    @Slot()
+    def _launch_action(self) -> None:
+        try:
+            port = int(self.port.text() or 5001)
+            api_key = self.api_key.text().strip()
+            src = self.source_folder.text().strip()
+            tgt = self.target_subdir.text().strip() or "image fait par gpt"
+            ops_text = self.operations_json.text().strip()
+            ops = json.loads(ops_text) if ops_text else []
+            if not src or not ops:
+                self._append("❌ Source folder ou operations JSON manquants")
+                return
+            url = f"http://localhost:{port}/actions/image-edit"
+            headers = {"X-API-KEY": api_key, "Content-Type": "application/json"}
+            payload = {"source": {"folder": src}, "operations": ops, "target_subdir": tgt}
+            r = requests.post(url, headers=headers, data=json.dumps(payload), timeout=15)
+            if r.status_code != 202:
+                self._append(f"❌ {r.status_code}: {r.text}")
+                return
+            self._last_job_id = r.json().get("job_id", "")
+            self._append(f"🚀 Action lancée — job_id: {self._last_job_id}")
+        except Exception as e:
+            self._append(f"❌ Erreur envoi action: {e}")
+
+    @Slot()
+    def _status_job(self) -> None:
+        try:
+            if not self._last_job_id:
+                self._append("ℹ️ Aucun job_id — lance d’abord une action.")
+                return
+            port = int(self.port.text() or 5001)
+            api_key = self.api_key.text().strip()
+            url = f"http://localhost:{port}/jobs/{self._last_job_id}"
+            headers = {"X-API-KEY": api_key}
+            r = requests.get(url, headers=headers, timeout=10)
+            self._append(r.text)
+        except Exception as e:
+            self._append(f"❌ Erreur status: {e}")
+
 ```
 
 # MOTEUR/scraping/widgets/history_widget.py
@@ -1270,6 +1468,7 @@ class HistoryWidget(QWidget):
                 f"{entry.get('profile','')} - {entry.get('images',0)} images)"
             )
         self.text.setPlainText("\n".join(lines))
+
 ```
 
 # MOTEUR/scraping/widgets/image_widget.py
@@ -1542,6 +1741,7 @@ class ImageScraperWidget(QWidget):
             self.start_btn.setEnabled(True)
 
 
+
 ```
 
 # MOTEUR/scraping/widgets/profile_widget.py
@@ -1679,12 +1879,16 @@ class ProfileWidget(QWidget):
         except Exception:
             pass
 
+
 ```
 
 # MOTEUR/scraping/widgets/scrap_widget.py
 Description: Source code for MOTEUR/scraping/widgets/scrap_widget.py
 ```python
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QTabWidget
+
+from MOTEUR.ui.theme import load_theme, apply_theme
+from MOTEUR.ui.settings_widget import SettingsWidget
 
 from .image_widget import ImageScraperWidget
 from .history_widget import HistoryWidget
@@ -1696,6 +1900,7 @@ from .flask_server_widget import FlaskServerWidget
 class ScrapWidget(QWidget):
     def __init__(self) -> None:
         super().__init__()
+        apply_theme(load_theme())
         self.modules_order = [
             "images",
             "flask",
@@ -1716,6 +1921,8 @@ class ScrapWidget(QWidget):
         self.tabs.addTab(self.history_widget, "Historique")
         self.tabs.addTab(self.woocommerce_widget, "Fiche Produit WooCommerce")
         self.tabs.addTab(self.storage_widget, "Stockage")
+        self.settings_widget = SettingsWidget()
+        self.tabs.addTab(self.settings_widget, "Paramètres")
         layout = QVBoxLayout(self)
         layout.addWidget(self.tabs)
 
@@ -1724,6 +1931,7 @@ class ScrapWidget(QWidget):
 
     def set_rename(self, enabled: bool) -> None:
         pass
+
 
 ```
 
@@ -1853,6 +2061,7 @@ class ScrapingSettingsWidget(QWidget):
             return
         self._relaunch_current_process(delay_sec=0.3)
         QCoreApplication.quit()
+
 ```
 
 # MOTEUR/scraping/widgets/storage_widget.py
@@ -1906,6 +2115,7 @@ class StorageWidget(QWidget):
     @Slot()
     def clear(self) -> None:
         self.table.setRowCount(0)
+
 ```
 
 # MOTEUR/scraping/widgets/woocommerce_widget.py
@@ -2222,6 +2432,246 @@ class WooCommerceProductWidget(QWidget):
                     )
 
 
+
+```
+
+# MOTEUR/ui/settings_widget.py
+Description: Source code for MOTEUR/ui/settings_widget.py
+```python
+from __future__ import annotations
+
+from pathlib import Path
+
+from PySide6.QtWidgets import (
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QRadioButton,
+    QPushButton,
+    QTextEdit,
+    QMessageBox,
+)
+from PySide6.QtCore import Slot, QProcess, QCoreApplication
+
+from .theme import load_theme, save_theme, apply_theme
+from MOTEUR.scraping.utils.restart import relaunch_current_process
+from MOTEUR.scraping.utils.update import PROJECT_ROOT
+
+
+class SettingsWidget(QWidget):
+    """General application settings."""
+
+    def __init__(self) -> None:
+        super().__init__()
+
+        self.light_radio = QRadioButton("Clair")
+        self.dark_radio = QRadioButton("Sombre")
+
+        current = load_theme()
+        (self.dark_radio if current == "dark" else self.light_radio).setChecked(True)
+
+        self.light_radio.toggled.connect(lambda _: self._apply())
+        self.dark_radio.toggled.connect(lambda _: self._apply())
+
+        self.apply_btn = QPushButton("Appliquer")
+        self.apply_btn.clicked.connect(self._apply)
+
+        radios = QHBoxLayout()
+        radios.addWidget(self.light_radio)
+        radios.addWidget(self.dark_radio)
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel("Thème de l’application"))
+        layout.addLayout(radios)
+        layout.addWidget(self.apply_btn)
+        layout.addWidget(
+            QLabel("Appliqué à toute l’application. Persistant dans settings.json")
+        )
+
+        self._build_maintenance_ui(layout)
+
+    @Slot()
+    def _apply(self) -> None:
+        name = "dark" if self.dark_radio.isChecked() else "light"
+        apply_theme(name)
+        save_theme(name)
+
+    # ------------------------------------------------------------------
+    def _build_maintenance_ui(self, layout: QVBoxLayout) -> None:
+        row = QHBoxLayout()
+        self.update_btn = QPushButton("Mettre à jour")
+        self.update_btn.setObjectName("btn_update")
+        self.restart_btn = QPushButton("Redémarrer")
+        self.restart_btn.setObjectName("btn_restart")
+        row.addWidget(self.update_btn)
+        row.addWidget(self.restart_btn)
+        layout.addLayout(row)
+
+        self.log_edit = QTextEdit()
+        self.log_edit.setReadOnly(True)
+        layout.addWidget(self.log_edit)
+
+        self._git_proc = QProcess(self)
+        self._git_proc.readyReadStandardOutput.connect(
+            lambda: self._append_log(
+                bytes(self._git_proc.readAllStandardOutput()).decode("utf-8", "ignore")
+            )
+        )
+        self._git_proc.readyReadStandardError.connect(
+            lambda: self._append_log(
+                bytes(self._git_proc.readAllStandardError()).decode("utf-8", "ignore")
+            )
+        )
+        self._git_proc.finished.connect(self._on_git_finished)
+
+        self.update_btn.clicked.connect(self._on_update_clicked)
+        self.restart_btn.clicked.connect(self._on_restart_clicked)
+
+    # ------------------------------------------------------------------
+    def _append_log(self, text: str) -> None:
+        txt = text.strip()
+        if txt:
+            self.log_edit.append(txt)
+
+    # ------------------------------------------------------------------
+    @Slot()
+    def _on_update_clicked(self) -> None:
+        root = Path(PROJECT_ROOT)
+        if not (root / ".git").exists():
+            QMessageBox.critical(
+                self, "Mettre à jour", f"Aucun dépôt Git détecté dans :\n{root}"
+            )
+            return
+
+        self.update_btn.setEnabled(False)
+        self.update_btn.setText("Mise à jour en cours…")
+        self._append_log(f"> git pull origin main (cwd={root})")
+        self._git_proc.setWorkingDirectory(str(root))
+        self._git_proc.start("git", ["pull", "origin", "main"])
+
+        if not self._git_proc.waitForStarted(2000):
+            self.update_btn.setEnabled(True)
+            self.update_btn.setText("Mettre à jour")
+            QMessageBox.critical(
+                self,
+                "Mettre à jour",
+                "Impossible de démarrer Git. Est-il installé et dans le PATH ?",
+            )
+
+    # ------------------------------------------------------------------
+    def _on_git_finished(self, code: int, status) -> None:
+        self.update_btn.setEnabled(True)
+        self.update_btn.setText("Mettre à jour")
+        if code == 0:
+            QMessageBox.information(self, "Mettre à jour", "Mise à jour réussie.")
+        else:
+            QMessageBox.critical(
+                self,
+                "Mettre à jour",
+                f"Échec du 'git pull' (code {code}). Consulte les logs.",
+            )
+
+    # ------------------------------------------------------------------
+    @Slot()
+    def _on_restart_clicked(self) -> None:
+        ret = QMessageBox.question(
+            self,
+            "Redémarrer",
+            "Voulez-vous vraiment redémarrer l’application ?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if ret != QMessageBox.Yes:
+            return
+        relaunch_current_process(delay_sec=0.3)
+        QCoreApplication.quit()
+
+```
+
+# MOTEUR/ui/theme.py
+Description: Source code for MOTEUR/ui/theme.py
+```python
+from __future__ import annotations
+
+from pathlib import Path
+import json
+
+from PySide6.QtWidgets import QApplication
+from PySide6.QtGui import QPalette, QColor
+
+
+THEME_FILE = Path(__file__).resolve().parents[2] / "settings.json"
+
+
+def load_theme() -> str:
+    """Return the persisted theme name ("light" or "dark")."""
+    try:
+        if THEME_FILE.exists():
+            data = json.loads(THEME_FILE.read_text(encoding="utf-8") or "{}")
+            theme = (data.get("theme") or "light").lower()
+            return "dark" if theme == "dark" else "light"
+    except Exception:
+        pass
+    return "light"
+
+
+def save_theme(name: str) -> None:
+    """Persist the theme name into :data:`THEME_FILE`."""
+    name = "dark" if name.lower() == "dark" else "light"
+    THEME_FILE.write_text(
+        json.dumps({"theme": name}, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+
+def _dark_palette() -> QPalette:
+    palette = QPalette()
+    palette.setColor(QPalette.Window, QColor("#2b2b2b"))
+    palette.setColor(QPalette.WindowText, QColor("#eeeeee"))
+    palette.setColor(QPalette.Base, QColor("#3c3f41"))
+    palette.setColor(QPalette.AlternateBase, QColor("#2f3234"))
+    palette.setColor(QPalette.ToolTipBase, QColor("#2b2b2b"))
+    palette.setColor(QPalette.ToolTipText, QColor("#ffffff"))
+    palette.setColor(QPalette.Text, QColor("#eeeeee"))
+    palette.setColor(QPalette.Button, QColor("#3c3f41"))
+    palette.setColor(QPalette.ButtonText, QColor("#eeeeee"))
+    palette.setColor(QPalette.BrightText, QColor("#ff6b6b"))
+    palette.setColor(QPalette.Highlight, QColor("#4c78ff"))
+    palette.setColor(QPalette.HighlightedText, QColor("#ffffff"))
+    palette.setColor(QPalette.Link, QColor("#62a8ff"))
+    return palette
+
+
+def _light_palette() -> QPalette:
+    app = QApplication.instance()
+    if app:
+        palette = app.style().standardPalette()
+    else:
+        palette = QPalette()
+    palette.setColor(QPalette.Highlight, QColor("#3d6cff"))
+    palette.setColor(QPalette.HighlightedText, QColor("#ffffff"))
+    palette.setColor(QPalette.Link, QColor("#0b61ff"))
+    return palette
+
+
+def apply_theme(name: str) -> None:
+    """Apply the given theme to the running :class:`QApplication`."""
+    app = QApplication.instance()
+    if not app:
+        return
+    app.setStyle("Fusion")
+    if name.lower() == "dark":
+        palette = _dark_palette()
+        app.setPalette(palette)
+        app.setStyleSheet(
+            "QToolTip { color: #ffffff; background-color: #2b2b2b; border: 0px; }"
+        )
+    else:
+        palette = _light_palette()
+        app.setPalette(palette)
+        app.setStyleSheet("")
+
 ```
 
 # README_flask_bridge.md
@@ -2253,21 +2703,27 @@ Une fois le serveur lancé, l'endpoint `/health` répond sans authentification.
 #      -d '{"url": "https://exemple.com", "selector": "img"}' \
 #      http://localhost:5001/scrape
 # curl -H "X-API-KEY: VOTRE_CLE" http://localhost:5001/jobs/<job_id>
+# curl -X POST http://localhost:5001/actions/image-edit \\
+#      -H "X-API-KEY: VOTRE_CLE" -H "Content-Type: application/json" \\
+#      -d '{"source":{"folder":"/path/images"},"operations":[{"op":"resize","width":1024,"height":1024,"keep_ratio":true}]}'
 ```
 
 Les réponses pour les autres endpoints (`/scrape`, `/jobs`, `/profiles`,
 `/history`) nécessitent le header `X-API-KEY`.
+
 ```
 
 # app.py
 Description: Source code for app.py
 ```python
 
+
 ```
 
 # localapp/__init__.py
 Description: Source code for localapp/__init__.py
 ```python
+
 ```
 
 # localapp/app.py
@@ -2771,6 +3227,7 @@ if __name__ == "__main__":
     interface = MainWindow()
     interface.show()
     sys.exit(app.exec())
+
 ```
 
 # localapp/icons/achat.svg
@@ -2779,6 +3236,7 @@ Description: Source code for localapp/icons/achat.svg
 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
   <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
 </svg>
+
 ```
 
 # localapp/icons/bilan.svg
@@ -2787,6 +3245,7 @@ Description: Source code for localapp/icons/bilan.svg
 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
   <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
 </svg>
+
 ```
 
 # localapp/icons/dashboard.svg
@@ -2795,6 +3254,7 @@ Description: Source code for localapp/icons/dashboard.svg
 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
   <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
 </svg>
+
 ```
 
 # localapp/icons/grand_livre.svg
@@ -2803,6 +3263,7 @@ Description: Source code for localapp/icons/grand_livre.svg
 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
   <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
 </svg>
+
 ```
 
 # localapp/icons/journal.svg
@@ -2811,6 +3272,7 @@ Description: Source code for localapp/icons/journal.svg
 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
   <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
 </svg>
+
 ```
 
 # localapp/icons/profile.svg
@@ -2819,6 +3281,7 @@ Description: Source code for localapp/icons/profile.svg
 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
   <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
 </svg>
+
 ```
 
 # localapp/icons/resultat.svg
@@ -2827,6 +3290,7 @@ Description: Source code for localapp/icons/resultat.svg
 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
   <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
 </svg>
+
 ```
 
 # localapp/icons/scraping.svg
@@ -2835,6 +3299,7 @@ Description: Source code for localapp/icons/scraping.svg
 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
   <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
 </svg>
+
 ```
 
 # localapp/icons/settings.svg
@@ -2843,6 +3308,7 @@ Description: Source code for localapp/icons/settings.svg
 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
   <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
 </svg>
+
 ```
 
 # localapp/icons/text.svg
@@ -2851,6 +3317,7 @@ Description: Source code for localapp/icons/text.svg
 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
   <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
 </svg>
+
 ```
 
 # localapp/icons/ventes.svg
@@ -2859,6 +3326,7 @@ Description: Source code for localapp/icons/ventes.svg
 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
   <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
 </svg>
+
 ```
 
 # requirements.txt
@@ -2871,6 +3339,8 @@ requests
 openpyxl
 Flask
 pyngrok
+Pillow>=10
+
 ```
 
 # tests/manual_profiles_test.md
@@ -2892,6 +3362,7 @@ Description: Source code for tests/manual_profiles_test.md
    curl -X GET https://<ngrok>.ngrok-free.app/profiles -H "X-API-KEY: <CLE>"
    ```
    Le profil "Test" doit être présent dans le JSON retourné.
+
 ```
 
 # tests/test_download_naming.py
@@ -2925,6 +3396,57 @@ def test_download_name_cleanup(tmp_path, monkeypatch):
 
     names = sorted(p.name for p in tmp_path.iterdir())
     assert names == ['bob-avec-lacet.jpg', 'bob-avec-lacet_1.jpg']
+
+
+```
+
+# tests/test_image_action_endpoint.py
+Description: Source code for tests/test_image_action_endpoint.py
+```python
+import time
+from pathlib import Path
+
+from PIL import Image
+
+from MOTEUR.scraping.server.flask_server import FlaskBridgeServer
+
+
+def _make_image(path: Path, color: str) -> None:
+    img = Image.new("RGB", (10, 10), color)
+    img.save(path)
+
+
+def test_image_action_endpoint(tmp_path):
+    _make_image(tmp_path / "a.png", "red")
+    _make_image(tmp_path / "b.jpg", "blue")
+
+    srv = FlaskBridgeServer()
+    srv.api_key = "k"
+    client = srv.app.test_client()
+
+    payload = {
+        "source": {"folder": str(tmp_path)},
+        "operations": [{"op": "resize", "width": 5, "height": 5, "keep_ratio": True}],
+        "target_subdir": "out",
+    }
+    resp = client.post(
+        "/actions/image-edit", json=payload, headers={"X-API-KEY": "k"}
+    )
+    assert resp.status_code == 202
+    job_id = resp.get_json()["job_id"]
+
+    for _ in range(30):
+        data = client.get(
+            f"/jobs/{job_id}", headers={"X-API-KEY": "k"}
+        ).get_json()
+        if data["status"] in {"done", "error"}:
+            break
+        time.sleep(0.1)
+    assert data["status"] == "done"
+    assert data["progress"]["downloaded"] == 2
+    out_dir = Path(data["output_dir"])
+    assert (out_dir / "a.png").exists()
+    assert (out_dir / "b.jpg").exists()
 
 ```
 
@@ -3014,6 +3536,7 @@ def test_export_excel(tmp_path, monkeypatch):
     assert data[1] == ("u1", "v1", "img1")
     assert data[2] == ("u2", "v2", "img2")
     widget.close()
+
 ```
 
 # tests/test_mainwindow.py
@@ -3041,6 +3564,7 @@ def test_mainwindow_creation():
     window = MainWindow()
     assert window.windowTitle() == "COMPTA - Interface de gestion comptable"
     window.close()
+
 ```
 
 # tests/test_profile_manager.py
@@ -3095,6 +3619,7 @@ def test_profile_persistence(tmp_path: Path):
     # Reload from disk to verify persistence
     new_list = pm.load_profiles()
     assert new_list == [{"name": "persist", "selector": ".x"}]
+
 ```
 
 # tests/test_profile_widget.py
@@ -3178,6 +3703,7 @@ def test_profile_selection_updates_image_widget(tmp_path):
     assert image_widget.profile_combo.currentText() == "p2"
     profile_widget.close()
     image_widget.close()
+
 ```
 
 # tests/test_restart_utils.py
@@ -3210,6 +3736,7 @@ def test_relaunch_uses_absolute_script_path(monkeypatch, tmp_path):
 
     assert os.path.isabs(called['argv'][1])
     assert called['argv'][1].endswith('script.py')
+
 ```
 
 # tests/test_scrape_variants.py
@@ -3272,6 +3799,7 @@ def test_scrape_variants_generate_urls(monkeypatch):
         'Camel': 'https://www.planetebob.fr/wp-content/uploads/2025/07/bob-avec-lacet-camel.jpg',
         'Noir': 'https://www.planetebob.fr/wp-content/uploads/2025/07/bob-avec-lacet-noir.jpg',
     }
+
 ```
 
 # tests/test_settings_widget.py
@@ -3318,6 +3846,7 @@ def test_update_button_triggers_git_pull(monkeypatch):
     assert started["program"] == "git"
     assert started["arguments"] == ["pull", "origin", "main"]
     assert widget._git_proc.workingDirectory() == str(update.PROJECT_ROOT)
+
 ```
 
 # tests/test_storage_integration.py
@@ -3385,6 +3914,7 @@ def test_image_scraper_adds_to_storage(tmp_path, monkeypatch):
     assert "Noir" in storage.table.item(0, 1).text()
     widget.close()
     storage.close()
+
 ```
 
 # tests/test_storage_widget.py
@@ -3419,6 +3949,7 @@ def test_storage_basic_operations():
     storage.clear()
     assert storage.table.rowCount() == 0
     storage.close()
+
 ```
 
 # tests/test_woocommerce_widget.py
@@ -3605,241 +4136,6 @@ def test_fill_multiple_times_no_duplicates(tmp_path, monkeypatch):
     assert len(rows) - 1 == first_count
     widget.close()
     storage.close()
+
 ```
 
-
-# MOTEUR/ui/theme.py
-Description: Source code for MOTEUR/ui/theme.py
-```python
-from __future__ import annotations
-
-from pathlib import Path
-import json
-
-from PySide6.QtWidgets import QApplication
-from PySide6.QtGui import QPalette, QColor
-
-THEME_FILE = Path(__file__).resolve().parents[2] / "settings.json"
-
-
-def load_theme() -> str:
-    """Return the persisted theme name ("light" or "dark")."""
-    try:
-        if THEME_FILE.exists():
-            data = json.loads(THEME_FILE.read_text(encoding="utf-8") or "{}")
-            theme = (data.get("theme") or "light").lower()
-            return "dark" if theme == "dark" else "light"
-    except Exception:
-        pass
-    return "light"
-
-
-def save_theme(name: str) -> None:
-    """Persist the theme name into :data:`THEME_FILE`."""
-    name = "dark" if name.lower() == "dark" else "light"
-    THEME_FILE.write_text(
-        json.dumps({"theme": name}, indent=2, ensure_ascii=False),
-        encoding="utf-8",
-    )
-
-
-def _dark_palette() -> QPalette:
-    palette = QPalette()
-    palette.setColor(QPalette.Window, QColor("#2b2b2b"))
-    palette.setColor(QPalette.WindowText, QColor("#eeeeee"))
-    palette.setColor(QPalette.Base, QColor("#3c3f41"))
-    palette.setColor(QPalette.AlternateBase, QColor("#2f3234"))
-    palette.setColor(QPalette.ToolTipBase, QColor("#2b2b2b"))
-    palette.setColor(QPalette.ToolTipText, QColor("#ffffff"))
-    palette.setColor(QPalette.Text, QColor("#eeeeee"))
-    palette.setColor(QPalette.Button, QColor("#3c3f41"))
-    palette.setColor(QPalette.ButtonText, QColor("#eeeeee"))
-    palette.setColor(QPalette.BrightText, QColor("#ff6b6b"))
-    palette.setColor(QPalette.Highlight, QColor("#4c78ff"))
-    palette.setColor(QPalette.HighlightedText, QColor("#ffffff"))
-    palette.setColor(QPalette.Link, QColor("#62a8ff"))
-    return palette
-
-
-def _light_palette() -> QPalette:
-    app = QApplication.instance()
-    if app:
-        palette = app.style().standardPalette()
-    else:
-        palette = QPalette()
-    palette.setColor(QPalette.Highlight, QColor("#3d6cff"))
-    palette.setColor(QPalette.HighlightedText, QColor("#ffffff"))
-    palette.setColor(QPalette.Link, QColor("#0b61ff"))
-    return palette
-
-
-def apply_theme(name: str) -> None:
-    """Apply the given theme to the running :class:`QApplication`."""
-    app = QApplication.instance()
-    if not app:
-        return
-    app.setStyle("Fusion")
-    if name.lower() == "dark":
-        palette = _dark_palette()
-        app.setPalette(palette)
-        app.setStyleSheet(
-            "QToolTip { color: #ffffff; background-color: #2b2b2b; border: 0px; }"
-        )
-    else:
-        palette = _light_palette()
-        app.setPalette(palette)
-        app.setStyleSheet("")
-```
-
-# MOTEUR/ui/settings_widget.py
-Description: Source code for MOTEUR/ui/settings_widget.py
-```python
-from __future__ import annotations
-
-from pathlib import Path
-
-from PySide6.QtWidgets import (
-    QWidget,
-    QVBoxLayout,
-    QHBoxLayout,
-    QLabel,
-    QRadioButton,
-    QPushButton,
-    QTextEdit,
-    QMessageBox,
-)
-from PySide6.QtCore import Slot, QProcess, QCoreApplication
-
-from .theme import load_theme, save_theme, apply_theme
-from MOTEUR.scraping.utils.restart import relaunch_current_process
-from MOTEUR.scraping.utils.update import PROJECT_ROOT
-
-
-class SettingsWidget(QWidget):
-    """General application settings."""
-
-    def __init__(self) -> None:
-        super().__init__()
-
-        self.light_radio = QRadioButton("Clair")
-        self.dark_radio = QRadioButton("Sombre")
-
-        current = load_theme()
-        (self.dark_radio if current == "dark" else self.light_radio).setChecked(True)
-
-        self.light_radio.toggled.connect(lambda _: self._apply())
-        self.dark_radio.toggled.connect(lambda _: self._apply())
-
-        self.apply_btn = QPushButton("Appliquer")
-        self.apply_btn.clicked.connect(self._apply)
-
-        radios = QHBoxLayout()
-        radios.addWidget(self.light_radio)
-        radios.addWidget(self.dark_radio)
-
-        layout = QVBoxLayout(self)
-        layout.addWidget(QLabel("Thème de l’application"))
-        layout.addLayout(radios)
-        layout.addWidget(self.apply_btn)
-        layout.addWidget(
-            QLabel("Appliqué à toute l’application. Persistant dans settings.json")
-        )
-
-        self._build_maintenance_ui(layout)
-
-    @Slot()
-    def _apply(self) -> None:
-        name = "dark" if self.dark_radio.isChecked() else "light"
-        apply_theme(name)
-        save_theme(name)
-
-    # ------------------------------------------------------------------
-    def _build_maintenance_ui(self, layout: QVBoxLayout) -> None:
-        row = QHBoxLayout()
-        self.update_btn = QPushButton("Mettre à jour")
-        self.update_btn.setObjectName("btn_update")
-        self.restart_btn = QPushButton("Redémarrer")
-        self.restart_btn.setObjectName("btn_restart")
-        row.addWidget(self.update_btn)
-        row.addWidget(self.restart_btn)
-        layout.addLayout(row)
-
-        self.log_edit = QTextEdit()
-        self.log_edit.setReadOnly(True)
-        layout.addWidget(self.log_edit)
-
-        self._git_proc = QProcess(self)
-        self._git_proc.readyReadStandardOutput.connect(
-            lambda: self._append_log(
-                bytes(self._git_proc.readAllStandardOutput()).decode("utf-8", "ignore")
-            )
-        )
-        self._git_proc.readyReadStandardError.connect(
-            lambda: self._append_log(
-                bytes(self._git_proc.readAllStandardError()).decode("utf-8", "ignore")
-            )
-        )
-        self._git_proc.finished.connect(self._on_git_finished)
-
-        self.update_btn.clicked.connect(self._on_update_clicked)
-        self.restart_btn.clicked.connect(self._on_restart_clicked)
-
-    # ------------------------------------------------------------------
-    def _append_log(self, text: str) -> None:
-        txt = text.strip()
-        if txt:
-            self.log_edit.append(txt)
-
-    # ------------------------------------------------------------------
-    @Slot()
-    def _on_update_clicked(self) -> None:
-        root = Path(PROJECT_ROOT)
-        if not (root / ".git").exists():
-            QMessageBox.critical(
-                self, "Mettre à jour", f"Aucun dépôt Git détecté dans :\n{root}"
-            )
-            return
-
-        self.update_btn.setEnabled(False)
-        self.update_btn.setText("Mise à jour en cours…")
-        self._append_log(f"> git pull origin main (cwd={root})")
-        self._git_proc.setWorkingDirectory(str(root))
-        self._git_proc.start("git", ["pull", "origin", "main"])
-
-        if not self._git_proc.waitForStarted(2000):
-            self.update_btn.setEnabled(True)
-            self.update_btn.setText("Mettre à jour")
-            QMessageBox.critical(
-                self,
-                "Mettre à jour",
-                "Impossible de démarrer Git. Est-il installé et dans le PATH ?",
-            )
-
-    # ------------------------------------------------------------------
-    def _on_git_finished(self, code: int, status) -> None:
-        self.update_btn.setEnabled(True)
-        self.update_btn.setText("Mettre à jour")
-        if code == 0:
-            QMessageBox.information(self, "Mettre à jour", "Mise à jour réussie.")
-        else:
-            QMessageBox.critical(
-                self,
-                "Mettre à jour",
-                f"Échec du 'git pull' (code {code}). Consulte les logs.",
-            )
-
-    # ------------------------------------------------------------------
-    @Slot()
-    def _on_restart_clicked(self) -> None:
-        ret = QMessageBox.question(
-            self,
-            "Redémarrer",
-            "Voulez-vous vraiment redémarrer l’application ?",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
-        )
-        if ret != QMessageBox.Yes:
-            return
-        relaunch_current_process(delay_sec=0.3)
-        QCoreApplication.quit()
-```
