@@ -354,12 +354,6 @@ class MainWindow(QMainWindow):
         self.profile_page.profiles_updated.connect(
             self.scrap_page.images_widget.refresh_profiles
         )
-        self.profile_page.profile_chosen.connect(
-            self.scrap_page.combined_widget.set_selected_profile
-        )
-        self.profile_page.profiles_updated.connect(
-            self.scrap_page.combined_widget.refresh_profiles
-        )
 
         self.dashboard_page = DashboardWidget()
         self.dashboard_page.journal_requested.connect(
@@ -435,9 +429,6 @@ class MainWindow(QMainWindow):
 
     def show_scraping_images(self, button: SidebarButton) -> None:
         self.show_scrap_page(button, tab_index=0)
-
-    def show_scraping_variants(self, button: SidebarButton) -> None:
-        self.show_scrap_page(button, tab_index=1)
 
     def show_profiles(self, button: SidebarButton) -> None:
         self.clear_selection()

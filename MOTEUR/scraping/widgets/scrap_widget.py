@@ -7,24 +7,11 @@ from .storage_widget import StorageWidget
 from .flask_server_widget import FlaskServerWidget
 
 
-class _DummySubWidget(QWidget):
-    def __init__(self) -> None:
-        super().__init__()
-        layout = QVBoxLayout(self)
-
-    def set_selected_profile(self, profile: str) -> None:
-        pass
-
-    def refresh_profiles(self) -> None:
-        pass
-
-
 class ScrapWidget(QWidget):
     def __init__(self) -> None:
         super().__init__()
         self.modules_order = [
             "images",
-            "combined",
             "flask",
             "history",
             "woocommerce",
@@ -32,7 +19,6 @@ class ScrapWidget(QWidget):
         ]
         self.storage_widget = StorageWidget()
         self.images_widget = ImageScraperWidget(storage_widget=self.storage_widget)
-        self.combined_widget = _DummySubWidget()
         self.flask_widget = FlaskServerWidget()
         self.history_widget = HistoryWidget()
         self.woocommerce_widget = WooCommerceProductWidget(
@@ -40,7 +26,6 @@ class ScrapWidget(QWidget):
         )
         self.tabs = QTabWidget()
         self.tabs.addTab(self.images_widget, "Images")
-        self.tabs.addTab(self.combined_widget, "Combined")
         self.tabs.addTab(self.flask_widget, "Serveur Flask")
         self.tabs.addTab(self.history_widget, "Historique")
         self.tabs.addTab(self.woocommerce_widget, "Fiche Produit WooCommerce")

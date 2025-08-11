@@ -1700,24 +1700,11 @@ from .storage_widget import StorageWidget
 from .flask_server_widget import FlaskServerWidget
 
 
-class _DummySubWidget(QWidget):
-    def __init__(self) -> None:
-        super().__init__()
-        layout = QVBoxLayout(self)
-
-    def set_selected_profile(self, profile: str) -> None:
-        pass
-
-    def refresh_profiles(self) -> None:
-        pass
-
-
 class ScrapWidget(QWidget):
     def __init__(self) -> None:
         super().__init__()
         self.modules_order = [
             "images",
-            "combined",
             "flask",
             "history",
             "woocommerce",
@@ -1725,7 +1712,6 @@ class ScrapWidget(QWidget):
         ]
         self.storage_widget = StorageWidget()
         self.images_widget = ImageScraperWidget(storage_widget=self.storage_widget)
-        self.combined_widget = _DummySubWidget()
         self.flask_widget = FlaskServerWidget()
         self.history_widget = HistoryWidget()
         self.woocommerce_widget = WooCommerceProductWidget(
@@ -1733,7 +1719,6 @@ class ScrapWidget(QWidget):
         )
         self.tabs = QTabWidget()
         self.tabs.addTab(self.images_widget, "Images")
-        self.tabs.addTab(self.combined_widget, "Combined")
         self.tabs.addTab(self.flask_widget, "Serveur Flask")
         self.tabs.addTab(self.history_widget, "Historique")
         self.tabs.addTab(self.woocommerce_widget, "Fiche Produit WooCommerce")
@@ -2571,12 +2556,6 @@ class MainWindow(QMainWindow):
         self.profile_page.profiles_updated.connect(
             self.scrap_page.images_widget.refresh_profiles
         )
-        self.profile_page.profile_chosen.connect(
-            self.scrap_page.combined_widget.set_selected_profile
-        )
-        self.profile_page.profiles_updated.connect(
-            self.scrap_page.combined_widget.refresh_profiles
-        )
 
         self.dashboard_page = DashboardWidget()
         self.dashboard_page.journal_requested.connect(
@@ -2652,9 +2631,6 @@ class MainWindow(QMainWindow):
 
     def show_scraping_images(self, button: SidebarButton) -> None:
         self.show_scrap_page(button, tab_index=0)
-
-    def show_scraping_variants(self, button: SidebarButton) -> None:
-        self.show_scrap_page(button, tab_index=1)
 
     def show_profiles(self, button: SidebarButton) -> None:
         self.clear_selection()
