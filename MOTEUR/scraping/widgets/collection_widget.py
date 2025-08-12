@@ -150,23 +150,26 @@ class CollectionWidget(QWidget):
     @Slot()
     def _save_list(self) -> None:
         if not self._pairs:
+            QMessageBox.information(self, "Enregistrer", "Aucune donnée.")
             return
+
         path, _ = QFileDialog.getSaveFileName(
             self,
             "Enregistrer la liste",
-            "",
-            "Text files (*.txt)",
+            "liens bob.txt",
+            "Text files (*.txt)"
         )
         if not path:
             return
+
         try:
             with open(path, "w", encoding="utf-8") as f:
-                for name, href in self._pairs:
-                    f.write(f"{name}\t{href}\n")
-        except Exception as exc:
-            QMessageBox.critical(self, "Export", f"Erreur: {exc}")
-            return
-        QMessageBox.information(self, "Export", f"✅ Liste enregistrée : {path}")
+                for _, href in self._pairs:
+                    if href:
+                        f.write(f"{href}\n")
+            QMessageBox.information(self, "Enregistrer", f"✅ Liens enregistrés : {path}")
+        except Exception as e:
+            QMessageBox.critical(self, "Enregistrer", f"Erreur: {e}")
 
     # ------------------------------------------------------------------
     @Slot()
