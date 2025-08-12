@@ -15,6 +15,9 @@ from PySide6.QtWidgets import (
 )
 
 
+VERSION_COLLECTION_WIDGET = 2  # thread + cancel + liens-seuls
+
+
 class _CollectionWorker(QObject):
     result = Signal(list)
     error = Signal(str)
@@ -156,18 +159,29 @@ class CollectionWidget(QWidget):
         path, _ = QFileDialog.getSaveFileName(
             self,
             "Enregistrer la liste",
-            "liens bob.txt",
+            "liens bob.txt",  # nom proposé
             "Text files (*.txt)"
         )
         if not path:
             return
+        if not path.lower().endswith(".txt"):
+            path += ".txt"
+
+        # URLs uniques, lignes propres
+        seen = set()
+        urls: list[str] = []
+        for _, href in self._pairs:
+            u = (href or "").strip()
+            if u and u not in seen:
+                seen.add(u)
+                urls.append(u)
 
         try:
-            with open(path, "w", encoding="utf-8") as f:
-                for _, href in self._pairs:
-                    if href:
-                        f.write(f"{href}\n")
-            QMessageBox.information(self, "Enregistrer", f"✅ Liens enregistrés : {path}")
+            with open(path, "w", encoding="utf-8", newline="\n") as f:
+                f.write("\n".join(urls) + "\n")
+            QMessageBox.information(
+                self, "Enregistrer", f"✅ Liens enregistrés : {path}"
+            )
         except Exception as e:
             QMessageBox.critical(self, "Enregistrer", f"Erreur: {e}")
 

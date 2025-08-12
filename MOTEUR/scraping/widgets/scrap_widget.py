@@ -1,10 +1,12 @@
+import logging
+
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QTabWidget
 
 from MOTEUR.ui.theme import load_theme, apply_theme
 from .settings_widget import ScrapingSettingsWidget as SettingsWidget
 
 from .image_widget import ImageScraperWidget
-from .collection_widget import CollectionWidget
+from MOTEUR.scraping.widgets.collection_widget import CollectionWidget, VERSION_COLLECTION_WIDGET
 from .history_widget import HistoryWidget
 from .woocommerce_widget import WooCommerceProductWidget
 from .storage_widget import StorageWidget
@@ -34,6 +36,9 @@ class ScrapWidget(QWidget):
         self.tabs = QTabWidget()
         self.tabs.addTab(self.images_widget, "Images")
         self.tabs.addTab(self.collections_widget, "Collections")
+        logging.getLogger(__name__).debug(
+            "Collections widget v%s loaded", VERSION_COLLECTION_WIDGET
+        )
         self.tabs.addTab(self.flask_widget, "Serveur Flask")
         self.tabs.addTab(self.history_widget, "Historique")
         self.tabs.addTab(self.woocommerce_widget, "Fiche Produit WooCommerce")
