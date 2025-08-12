@@ -60,6 +60,49 @@ def _scroll_page(driver: webdriver.Chrome, pause: float = 0.5) -> None:
         last_height = driver.execute_script("return document.body.scrollHeight")
 
 
+def scrape_collection_products(page_url: str) -> list[tuple[str, str]]:
+    """Retourne ``[(name, absolute_url), ...]`` pour une page collection Shopify."""
+    driver = _create_driver()
+    out: list[tuple[str, str]] = []
+    try:
+        driver.get(page_url)
+        WebDriverWait(driver, 12).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, "product-card, .product-card"))
+        )
+        _scroll_page(driver, pause=0.6)  # charger lazy load
+
+        # Optionnel : pagination "Voir plus"
+        while True:
+            try:
+                btn = driver.find_element(By.CSS_SELECTOR, "button, a.load-more, a[href*='page=']")
+                if not btn.is_displayed():
+                    break
+                driver.execute_script("arguments[0].click();", btn)
+                time.sleep(1.2)
+            except Exception:
+                break
+
+        cards = driver.find_elements(By.CSS_SELECTOR, "product-card, .product-card")
+        for card in cards:
+            a = None
+            try:
+                a = card.find_element(By.CSS_SELECTOR, ".product-card__title a")
+            except Exception:
+                try:
+                    a = card.find_element(By.CSS_SELECTOR, "a[href^='/products/']")
+                except Exception:
+                    continue
+            name = (a.text or "").strip()
+            href = (a.get_attribute("href") or a.get_attribute("data-href") or "").strip()
+            if href.startswith("/"):
+                href = urljoin(page_url, href)
+            if name and href:
+                out.append((name, href))
+    finally:
+        driver.quit()
+    return out
+
+
 def _simulate_slider_interaction(driver: webdriver.Chrome) -> None:
     try:
         dots = driver.find_elements(By.CSS_SELECTOR, ".flickity-page-dots .dot")
