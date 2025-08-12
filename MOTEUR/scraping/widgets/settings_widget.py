@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Signal, Slot, QCoreApplication, QProcess
 from pathlib import Path
+import os
 
 
 class ScrapingSettingsWidget(QWidget):
@@ -38,6 +39,8 @@ class ScrapingSettingsWidget(QWidget):
         self.restart_btn.setObjectName("btn_restart")
         row.addWidget(self.update_btn)
         row.addWidget(self.restart_btn)
+        self.copy_btn = QPushButton("Mettre à jour le txt")
+        row.addWidget(self.copy_btn)
         layout.addLayout(row)
 
         # Simple log output
@@ -61,6 +64,7 @@ class ScrapingSettingsWidget(QWidget):
 
         self.update_btn.clicked.connect(self._on_update_clicked)
         self.restart_btn.clicked.connect(self._on_restart_clicked)
+        self.copy_btn.clicked.connect(self._on_generate_copy_clicked)
 
     # ------------------------------------------------------------------
     def _append_log(self, text: str) -> None:
@@ -121,3 +125,53 @@ class ScrapingSettingsWidget(QWidget):
             return
         self._relaunch_current_process(delay_sec=0.3)
         QCoreApplication.quit()
+
+    # ------------------------------------------------------------------
+    @Slot()
+    def _on_generate_copy_clicked(self) -> None:
+        root = Path(self._project_root)  # défini dans __init__
+        out = root / "copy.txt"
+        ignore_dirs = {".git", "__pycache__", ".venv", "venv", ".mypy_cache", ".pytest_cache", "images"}
+        max_size = 800_000  # ignore fichiers texte > 800 KB
+
+        try:
+            with open(out, "w", encoding="utf-8") as w:   # <= ÉCRASE à chaque clic
+                for dirpath, dirnames, filenames in os.walk(root):
+                    dn = os.path.basename(dirpath)
+                    if dn in ignore_dirs:
+                        continue
+                    for fn in sorted(filenames):
+                        p = Path(dirpath) / fn
+                        if not _is_textlike(p):
+                            continue
+                        try:
+                            if p.stat().st_size > max_size:
+                                # trop gros, on documente et skip
+                                rel = p.relative_to(root).as_posix()
+                                w.write(f"\n\n# {rel}\n")
+                                w.write(f"Description: [skipped: file too large]\n\n")
+                                continue
+                            content = p.read_text(encoding="utf-8")
+                        except Exception:
+                            rel = p.relative_to(root).as_posix()
+                            w.write(f"\n\n# {rel}\n")
+                            w.write("Description: [skipped: non-text or undecodable]\n\n")
+                            continue
+
+                        rel = p.relative_to(root).as_posix()
+                        w.write(f"\n\n# {rel}\n")
+                        w.write(f"Description: Source code for {rel}\n")
+                        w.write("```\n")
+                        w.write(content)
+                        w.write("\n```\n")
+            self._append_log(f"✅ copy.txt régénéré : {out}")
+        except Exception as e:
+            self._append_log(f"❌ Erreur génération copy.txt : {e}")
+
+
+def _is_textlike(p: Path) -> bool:
+    # Ajuste ici si besoin d’autres extensions
+    exts = {".py", ".txt", ".md", ".json", ".yml", ".yaml", ".ini", ".cfg", ".toml", ".csv"}
+    return p.suffix.lower() in exts
+
+
