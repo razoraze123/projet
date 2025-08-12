@@ -2,7 +2,7 @@ import os
 import re
 import time
 from pathlib import Path
-from typing import List, Set
+from typing import Any, Callable, List, Set
 from urllib.parse import urljoin, urlparse, unquote
 import unicodedata
 
@@ -60,57 +60,112 @@ def _scroll_page(driver: webdriver.Chrome, pause: float = 0.5) -> None:
         last_height = driver.execute_script("return document.body.scrollHeight")
 
 
-def scrape_collection_products(page_url: str) -> list[tuple[str, str]]:
-    """Retourne ``[(name, absolute_url), ...]`` pour une page collection Shopify."""
+def scrape_collection_products_cancelable(
+    page_url: str,
+    on_driver_ready: Callable[[Any], None],
+    is_cancelled: Callable[[], bool],
+    log: Callable[[str], None] | None = None,
+) -> list[tuple[str, str]]:
+    """
+    Variante annulable. on_driver_ready(driver) est appelé après création.
+    is_cancelled() est consulté régulièrement (avant/pendant les waits, boucles, scrolls).
+    """
     driver = _create_driver()
+    if on_driver_ready:
+        on_driver_ready(driver)
     try:
         out: list[tuple[str, str]] = []
-        driver.get(page_url)
-        WebDriverWait(driver, 12).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "product-card, .product-card"))
-        )
-        _scroll_page(driver, pause=0.6)  # charger lazy load
 
-        # Optionnel : pagination "Voir plus"
-        while True:
+        if is_cancelled():
+            raise RuntimeError("cancelled")
+        driver.set_page_load_timeout(25)
+        driver.get(page_url)
+        if log:
+            log("🌐 Page chargée.")
+
+        selectors = [
+            "product-card, .product-card",
+            "[data-product-card]",
+            "ul#product-grid li, .collection .grid .grid__item",
+        ]
+        WebDriverWait(driver, 20).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, ",".join(selectors)))
+        )
+
+        if is_cancelled():
+            raise RuntimeError("cancelled")
+        _scroll_page(driver, pause=0.5)
+
+        clicks = 0
+        while clicks < 5:
+            if is_cancelled():
+                raise RuntimeError("cancelled")
             try:
-                btn = driver.find_element(By.CSS_SELECTOR, "button, a.load-more, a[href*='page=']")
-                if not btn.is_displayed():
+                load_more = driver.find_element(
+                    By.CSS_SELECTOR,
+                    "button#product-grid-load-more, a.load-more, button.load-more",
+                )
+                if not load_more.is_displayed() or not load_more.is_enabled():
                     break
-                driver.execute_script("arguments[0].click();", btn)
-                time.sleep(1.2)
+                driver.execute_script("arguments[0].click();", load_more)
+                clicks += 1
+                if log:
+                    log(f"↻ Voir plus… ({clicks})")
+                time.sleep(1.0)
+                _scroll_page(driver, pause=0.3)
             except Exception:
                 break
 
-        cards = driver.find_elements(By.CSS_SELECTOR, "product-card, .product-card")
+        if is_cancelled():
+            raise RuntimeError("cancelled")
+        cards = driver.find_elements(By.CSS_SELECTOR, ",".join(selectors))
+
         for card in cards:
+            if is_cancelled():
+                raise RuntimeError("cancelled")
             a = None
-            try:
-                a = card.find_element(By.CSS_SELECTOR, ".product-card__title a")
-            except Exception:
+            for sel in (
+                ".product-card__title a",
+                "a[href^='/products/']",
+                "a.card-information__link",
+            ):
                 try:
-                    a = card.find_element(By.CSS_SELECTOR, "a[href^='/products/']")
+                    a = card.find_element(By.CSS_SELECTOR, sel)
+                    if a:
+                        break
                 except Exception:
                     continue
+            if not a:
+                continue
             name = (a.text or "").strip()
             href = (a.get_attribute("href") or a.get_attribute("data-href") or "").strip()
             if href.startswith("/"):
                 href = urljoin(page_url, href)
-            if name and href:
+            if name and href and href.startswith("http"):
                 out.append((name, href))
 
-        # dédupliquer
-        seen: set[str] = set()
         unique: list[tuple[str, str]] = []
+        seen: set[str] = set()
         for name, href in out:
             if href not in seen:
                 seen.add(href)
                 unique.append((name, href))
         return unique
     except Exception as exc:
-        raise RuntimeError(f"scrape_collection_products failed: {exc}") from exc
+        if str(exc) == "cancelled":
+            raise
+        raise RuntimeError(
+            f"scrape_collection_products failed for '{page_url}': {exc}"
+        ) from exc
     finally:
-        driver.quit()
+        try:
+            driver.quit()
+        except Exception:
+            pass
+
+
+def scrape_collection_products(page_url: str) -> list[tuple[str, str]]:
+    return scrape_collection_products_cancelable(page_url, lambda d: None, lambda: False, None)
 
 
 def _simulate_slider_interaction(driver: webdriver.Chrome) -> None:
