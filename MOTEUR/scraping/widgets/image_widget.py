@@ -65,11 +65,14 @@ class ImageScraperWidget(QWidget):
         self.copy_btn.clicked.connect(self._copy_console)
         self.export_btn = QPushButton("Exporter")
         self.export_btn.clicked.connect(self._export_excel)
+        self.collect_btn = QPushButton("Lister collection → TXT")
+        self.collect_btn.clicked.connect(self._collect_collection)
 
         buttons_layout = QHBoxLayout()
         buttons_layout.addWidget(self.start_btn)
         buttons_layout.addWidget(self.copy_btn)
         buttons_layout.addWidget(self.export_btn)
+        buttons_layout.addWidget(self.collect_btn)
 
         self.console = QTextEdit()
         self.console.setReadOnly(True)
@@ -91,7 +94,7 @@ class ImageScraperWidget(QWidget):
 
         self.refresh_profiles()
         last = history.load_last_used()
-        self.file_edit.setText(last.get("url", ""))
+        self.file_edit.setText(history.load_last_file() or "")
         self.folder_edit.setText(last.get("folder", ""))
 
     # ------------------------------------------------------------------
@@ -138,6 +141,7 @@ class ImageScraperWidget(QWidget):
         )
         if path:
             self.file_edit.setText(path)
+            history.save_last_file(path)
 
     @Slot()
     def _copy_console(self) -> None:
@@ -179,6 +183,32 @@ class ImageScraperWidget(QWidget):
         QMessageBox.information(self, "Export", "Export termin\u00e9.")
 
     @Slot()
+    def _collect_collection(self) -> None:
+        from PySide6.QtWidgets import QFileDialog, QMessageBox
+
+        url = self.file_edit.text().strip()
+        if not url:
+            self.console.append("❌ Renseigne l’URL de la collection dans ‘Fichier’.")
+            return
+        try:
+            from ..image_scraper import scrape_collection_products
+
+            self.console.append("⏳ Scan de la collection…")
+            pairs = scrape_collection_products(url)
+            if not pairs:
+                self.console.append("⚠️ Aucun produit détecté.")
+                return
+            path, _ = QFileDialog.getSaveFileName(self, "Enregistrer la liste", "", "Text files (*.txt)")
+            if not path:
+                return
+            with open(path, "w", encoding="utf-8") as f:
+                for name, href in pairs:
+                    f.write(f"{name}\t{href}\n")
+            self.console.append(f"✅ {len(pairs)} produits enregistrés dans : {path}")
+        except Exception as e:
+            self.console.append(f"❌ Erreur collecte: {e}")
+
+    @Slot()
     def _start(self) -> None:
         file_path = self.file_edit.text().strip()
         selector = self.selected_selector.strip()
@@ -192,6 +222,7 @@ class ImageScraperWidget(QWidget):
             self.console.append("❌ Fichier introuvable")
             return
 
+        history.save_last_file(file_path)
         with open(path, "r", encoding="utf-8") as f:
             urls = [line.strip() for line in f if line.strip()]
         if not urls:

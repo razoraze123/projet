@@ -47,7 +47,12 @@ def load_history() -> List[Dict]:
 
 
 def save_last_used(url: str, folder: str) -> None:
-    _write_json(LAST_USED_FILE, {"url": url, "folder": folder})
+    data = {
+        "url": url,
+        "folder": folder,
+        "last_file": load_last_file(),
+    }
+    _write_json(LAST_USED_FILE, data)
 
 
 def load_last_used() -> Dict[str, str]:
@@ -61,3 +66,22 @@ def load_last_used() -> Dict[str, str]:
     except Exception:
         pass
     return {"url": "", "folder": ""}
+
+
+def save_last_file(path: str) -> None:
+    data = load_last_used()
+    data["last_file"] = path or ""
+    _write_json(LAST_USED_FILE, data)
+
+
+def load_last_file() -> str:
+    if not LAST_USED_FILE.exists():
+        return ""
+    try:
+        with open(LAST_USED_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, dict):
+            return data.get("last_file", "")
+    except Exception:
+        pass
+    return ""
