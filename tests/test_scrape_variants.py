@@ -5,6 +5,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from MOTEUR.scraping import image_scraper
 from MOTEUR.scraping.image_scraper import scrape_variants
 from selenium.webdriver.common.by import By
 
@@ -49,6 +50,16 @@ class DummyWait:
 
 def test_scrape_variants_generate_urls(monkeypatch):
     monkeypatch.setattr('MOTEUR.scraping.image_scraper.WebDriverWait', DummyWait)
+    class DummyDateTime:
+        @staticmethod
+        def now():
+            class D:
+                year = 2025
+                month = 7
+
+            return D
+
+    monkeypatch.setattr(image_scraper, 'datetime', DummyDateTime)
     driver = DummyDriver('https://competitor.com/products/bob-avec-lacet')
     mapping = scrape_variants(driver)
     assert mapping == {

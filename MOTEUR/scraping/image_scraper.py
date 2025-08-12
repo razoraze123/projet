@@ -6,6 +6,8 @@ from typing import List, Set
 from urllib.parse import urljoin, urlparse, unquote
 import unicodedata
 
+from datetime import datetime
+
 import requests
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -19,6 +21,17 @@ DEFAULT_USER_AGENT = (
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/124.0.0.0 Safari/537.36"
 )
+
+UPLOADS_BASE_URL = "https://www.planetebob.fr/wp-content/uploads/"
+
+
+def build_uploads_url(
+    product_slug: str, variant_slug: str, *, year=None, month=None
+) -> str:
+    if year is None or month is None:
+        now = datetime.now()
+        year, month = now.year, now.month
+    return f"{UPLOADS_BASE_URL}{year}/{month:02d}/{product_slug}-{variant_slug}.jpg"
 
 
 def _create_driver(user_agent: str = DEFAULT_USER_AGENT) -> webdriver.Chrome:
@@ -285,10 +298,7 @@ def scrape_variants(driver: webdriver.Chrome) -> dict[str, str]:
             main_img = new_img
             if value:
                 variant_slug = _slugify(value)
-                url = (
-                    f"https://www.planetebob.fr/wp-content/uploads/2025/07/"
-                    f"{product_slug}-{variant_slug}.jpg"
-                )
+                url = build_uploads_url(product_slug, variant_slug)
                 mapping[value] = url
     except Exception as exc:
         print(f"⚠️ Erreur lors du scraping des variantes: {exc}")

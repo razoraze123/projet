@@ -49,8 +49,9 @@ def test_fill_from_storage(tmp_path, monkeypatch):
     (images_root / "chapeau" / "chapeau-unique.jpg").write_text("x")
 
     monkeypatch.setattr(WooCommerceProductWidget, "IMAGES_ROOT", images_root)
-
     widget = WooCommerceProductWidget(storage_widget=storage)
+    widget.auto_upload_subdir_checkbox.setChecked(False)
+    widget.upload_subdir_edit.setText("2025/07")
     widget.fill_from_storage()
     assert widget.table.rowCount() == 4
     type_col = widget.HEADERS.index("Type")
@@ -129,6 +130,8 @@ def test_clean_image_urls_option(tmp_path, monkeypatch):
 
     # Cleaning enabled (default)
     widget = WooCommerceProductWidget(storage_widget=storage)
+    widget.auto_upload_subdir_checkbox.setChecked(False)
+    widget.upload_subdir_edit.setText("2025/07")
     widget.fill_from_storage()
     img_col = widget.HEADERS.index("Images")
     images = widget.table.item(0, img_col).text().split(", ")
@@ -141,6 +144,8 @@ def test_clean_image_urls_option(tmp_path, monkeypatch):
     # Cleaning disabled
     widget2 = WooCommerceProductWidget(storage_widget=storage)
     widget2.clean_images_checkbox.setChecked(False)
+    widget2.auto_upload_subdir_checkbox.setChecked(False)
+    widget2.upload_subdir_edit.setText("2025/07")
     widget2.fill_from_storage()
     images2 = widget2.table.item(0, img_col).text().split(", ")
     assert images2 == [
@@ -157,6 +162,8 @@ def test_fill_multiple_times_no_duplicates(tmp_path, monkeypatch):
     storage.add_product("bob", ["Unique"])
 
     widget = WooCommerceProductWidget(storage_widget=storage)
+    widget.auto_upload_subdir_checkbox.setChecked(False)
+    widget.upload_subdir_edit.setText("2025/07")
     widget.fill_from_storage()
     first_count = widget.table.rowCount()
 
@@ -179,3 +186,65 @@ def test_fill_multiple_times_no_duplicates(tmp_path, monkeypatch):
     assert len(rows) - 1 == first_count
     widget.close()
     storage.close()
+
+
+@pytest.mark.parametrize("delim", [",", ";", "\t"])
+def test_import_csv_sniffer(tmp_path, monkeypatch, delim):
+    app = QApplication.instance() or QApplication([])
+    widget = WooCommerceProductWidget(storage_widget=StorageWidget())
+    infile = tmp_path / "in.csv"
+    infile.write_text(f"1{delim}2\n", encoding="utf-8")
+    monkeypatch.setattr(
+        "MOTEUR.scraping.widgets.woocommerce_widget.QFileDialog.getOpenFileName",
+        lambda *a, **k: (str(infile), ""),
+    )
+    widget.import_csv()
+    assert widget.table.item(0, 0).text() == "1"
+    assert widget.table.item(0, 1).text() == "2"
+    widget.close()
+
+
+def test_export_csv_adds_extension(tmp_path, monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    widget = WooCommerceProductWidget(storage_widget=StorageWidget())
+    widget.add_row()
+    out_file = tmp_path / "out"
+    monkeypatch.setattr(
+        "MOTEUR.scraping.widgets.woocommerce_widget.QFileDialog.getSaveFileName",
+        lambda *a, **k: (str(out_file), ""),
+    )
+    widget.export_csv()
+    assert out_file.with_suffix(".csv").exists()
+    widget.close()
+
+
+def test_check_urls_head_fallback(tmp_path, monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    widget = WooCommerceProductWidget(storage_widget=StorageWidget())
+    widget.add_row()
+    img_col = widget.HEADERS.index("Images")
+    widget.table.setItem(0, img_col, QtWidgets.QTableWidgetItem("http://x"))
+    outfile = tmp_path / "res.csv"
+    monkeypatch.setattr(
+        "MOTEUR.scraping.widgets.woocommerce_widget.QFileDialog.getSaveFileName",
+        lambda *a, **k: (str(outfile), ""),
+    )
+
+    class Resp:
+        def __init__(self, code):
+            self.status_code = code
+
+    def fake_head(url, timeout, allow_redirects=True):
+        return Resp(405)
+
+    def fake_get(url, timeout, stream=True, headers=None):
+        return Resp(200)
+
+    monkeypatch.setattr("requests.head", fake_head)
+    monkeypatch.setattr("requests.get", fake_get)
+
+    widget.check_urls()
+    with open(outfile, newline="", encoding="utf-8") as f:
+        rows = list(csv.reader(f, delimiter=";"))
+    assert rows[1] == ["http://x", "oui"]
+    widget.close()
