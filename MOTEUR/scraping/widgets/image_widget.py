@@ -13,34 +13,12 @@ from PySide6.QtWidgets import (
     QApplication,
     QMessageBox,
 )
-from PySide6.QtCore import Qt, Slot
+from PySide6.QtCore import Qt, Slot, QThread
 from PySide6.QtGui import QClipboard
-from selenium.webdriver.common.by import By
-
-import sys
 from pathlib import Path
-
-
-class _ConsoleStream:
-    """File-like object writing text directly to a :class:`QTextEdit`."""
-
-    def __init__(self, widget: QTextEdit) -> None:
-        self.widget = widget
-
-    def write(self, text: str) -> int:
-        if text:
-            # Qt widgets must be manipulated from the GUI thread. Using
-            # ``append`` is safe enough for short text snippets.
-            self.widget.append(text.rstrip())
-        return len(text)
-
-    def flush(self) -> None:  # pragma: no cover - required for file-like API
-        pass
 
 from .. import profile_manager as pm
 from .. import history
-
-from ..image_scraper import scrape_images, scrape_variants
 
 
 class ImageScraperWidget(QWidget):
@@ -214,54 +192,46 @@ class ImageScraperWidget(QWidget):
             self.console.append("❌ Fichier introuvable")
             return
 
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                urls = [line.strip() for line in f if line.strip()]
-        except Exception as exc:
-            self.console.append(f"❌ Erreur à la lecture du fichier: {exc}")
-            return
-
+        with open(path, "r", encoding="utf-8") as f:
+            urls = [line.strip() for line in f if line.strip()]
         if not urls:
             self.console.append("❌ Aucun URL dans le fichier")
             return
 
+        # UI prêt
         self.start_btn.setEnabled(False)
         self.console.clear()
         self.progress_bar.show()
-        self.progress_bar.setRange(0, 0)
-        stream = _ConsoleStream(self.console)
-        old_stdout = sys.stdout
-        sys.stdout = stream
+        self.progress_bar.setRange(0, len(urls))
+        self.progress_bar.setValue(0)
         self.export_data = []
-        try:
-            for url in urls:
-                try:
-                    if self.variants_checkbox.isChecked():
-                        total, driver = scrape_images(
-                            url, selector, folder, keep_driver=True
-                        )
-                        try:
-                            product_name = driver.find_element(By.TAG_NAME, "h1").text.strip()
-                        except Exception:
-                            product_name = ""
-                        variants = scrape_variants(driver)
-                        if self.storage_widget:
-                            self.storage_widget.add_product(product_name, list(variants.keys()))
-                        driver.quit()
-                    else:
-                        total = scrape_images(url, selector, folder)
-                        variants = {}
-                except Exception as exc:
-                    self.console.append(f"❌ Erreur sur {url}: {exc}")
-                else:
-                    self.console.append(f"✅ {url} - {total} images")
-                    for name, img in variants.items():
-                        self.console.append(f"  • {name}: {img}")
-                        self.export_data.append({"URL": url, "Variant": name, "Image": img})
-                    history.log_scrape(url, self.profile_combo.currentText(), total, folder)
-        finally:
-            sys.stdout = old_stdout
+
+        # thread + worker
+        from .image_worker import ImageJobWorker
+        self._thread = QThread(self)
+        self._worker = ImageJobWorker(urls, selector, folder, self.variants_checkbox.isChecked())
+        self._worker.moveToThread(self._thread)
+
+        # connexions
+        self._thread.started.connect(self._worker.run)
+        self._worker.log.connect(self.console.append)  # thread-safe (queued)
+        def _on_item_done(url, total, variants):
+            self.console.append(f"✅ {url} - {total} images")
+            for name, img in (variants or {}).items():
+                self.console.append(f"  • {name}: {img}")
+                self.export_data.append({"URL": url, "Variant": name, "Image": img})
+            # Optionnel: push vers storage_widget
+            if self.storage_widget and variants:
+                self.storage_widget.add_product("", list(variants.keys()))
+        self._worker.item_done.connect(_on_item_done)
+        self._worker.progress.connect(lambda done, tot: self.progress_bar.setValue(done))
+        def _on_finished():
             self.progress_bar.hide()
             self.start_btn.setEnabled(True)
+            self._thread.quit(); self._thread.wait()
+            self._worker.deleteLater(); self._thread.deleteLater()
+        self._worker.finished.connect(_on_finished)
+
+        self._thread.start()
 
 
