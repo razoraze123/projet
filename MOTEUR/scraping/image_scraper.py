@@ -63,8 +63,8 @@ def _scroll_page(driver: webdriver.Chrome, pause: float = 0.5) -> None:
 def scrape_collection_products(page_url: str) -> list[tuple[str, str]]:
     """Retourne ``[(name, absolute_url), ...]`` pour une page collection Shopify."""
     driver = _create_driver()
-    out: list[tuple[str, str]] = []
     try:
+        out: list[tuple[str, str]] = []
         driver.get(page_url)
         WebDriverWait(driver, 12).until(
             EC.presence_of_element_located((By.CSS_SELECTOR, "product-card, .product-card"))
@@ -98,9 +98,19 @@ def scrape_collection_products(page_url: str) -> list[tuple[str, str]]:
                 href = urljoin(page_url, href)
             if name and href:
                 out.append((name, href))
+
+        # dédupliquer
+        seen: set[str] = set()
+        unique: list[tuple[str, str]] = []
+        for name, href in out:
+            if href not in seen:
+                seen.add(href)
+                unique.append((name, href))
+        return unique
+    except Exception as exc:
+        raise RuntimeError(f"scrape_collection_products failed: {exc}") from exc
     finally:
         driver.quit()
-    return out
 
 
 def _simulate_slider_interaction(driver: webdriver.Chrome) -> None:
