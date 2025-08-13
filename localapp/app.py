@@ -24,7 +24,7 @@ try:
         QScrollArea,
     )
     from PySide6.QtCore import Qt, QPropertyAnimation, Slot, QEasingCurve
-    from PySide6.QtGui import QIcon
+    from PySide6.QtGui import QIcon, QKeySequence, QShortcut
 except ModuleNotFoundError:
     print("Install dependencies with pip install -r requirements.txt")
     sys.exit(1)
@@ -38,6 +38,7 @@ from MOTEUR.scraping.widgets.profile_widget import ProfileWidget
 from MOTEUR.compta.dashboard.widget import DashboardWidget
 from MOTEUR.ui.settings_widget import SettingsWidget
 from MOTEUR.ui.theme import load_theme, apply_theme
+from gallery_widget import GalleryWidget
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -281,6 +282,11 @@ class MainWindow(QMainWindow):
         self.scrap_section.add_widget(self.scrap_btn)
         self.button_group.append(self.scrap_btn)
 
+        self.gallery_btn = SidebarButton("Galerie")
+        self.gallery_btn.clicked.connect(lambda _, b=self.gallery_btn: self.show_gallery_tab())
+        self.scrap_section.add_widget(self.gallery_btn)
+        self.button_group.append(self.gallery_btn)
+
         btn = SidebarButton(
             "Scraping Descriptions",
             icon_path=str(BASE_DIR / "icons" / "text.svg"),
@@ -350,6 +356,11 @@ class MainWindow(QMainWindow):
         )
         self.stack.addWidget(self.scraping_settings_page)
 
+        base_url = getattr(self, "flask_base_url", "")
+        api_key = getattr(self, "api_key", None)
+        self.gallery_page = GalleryWidget(self, base_url=base_url, api_key=api_key)
+        self.stack.addWidget(self.gallery_page)
+
         self.profile_page.profile_chosen.connect(
             self.scrap_page.images_widget.set_selected_profile
         )
@@ -402,6 +413,9 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(sidebar_container, 1)
         main_layout.addWidget(self.stack, 4)
 
+        # Install global shortcuts
+        self._install_shortcuts()
+
     def clear_selection(self) -> None:
         for btn in self.button_group:
             btn.setChecked(False)
@@ -412,6 +426,32 @@ class MainWindow(QMainWindow):
                 self.scrap_section if active is self.compta_section else self.compta_section
             )
             other.collapse()
+
+    def _install_shortcuts(self) -> None:
+        def add(key: str, fn):
+            sc = QShortcut(QKeySequence(key), self)
+            sc.activated.connect(fn)
+
+        if hasattr(self, "show_scrap_page"):
+            add("Ctrl+1", lambda: self.show_scrap_page(self.scrap_btn))
+        if hasattr(self, "show_profiles"):
+            add("Ctrl+2", lambda: self.show_profiles(self.profiles_btn))
+        if hasattr(self, "show_gallery_tab"):
+            add("Ctrl+3", self.show_gallery_tab)
+        if hasattr(self, "show_flask_tab"):
+            add("Ctrl+4", self.show_flask_tab)
+        if hasattr(self, "show_settings"):
+            add("Ctrl+5", self.show_settings)
+
+        target = getattr(self, "scrap_page", None)
+        if target and hasattr(target, "start_scan"):
+            add("Ctrl+L", target.start_scan)
+        if target and hasattr(target, "copy_links_to_clipboard"):
+            add("Ctrl+C", target.copy_links_to_clipboard)
+        if target and hasattr(target, "dedupe_links"):
+            add("Ctrl+D", target.dedupe_links)
+        if target and hasattr(target, "export_links_csv"):
+            add("Ctrl+E", target.export_links_csv)
 
     def display_content(self, text: str, button: SidebarButton) -> None:
         self.clear_selection()
@@ -436,6 +476,12 @@ class MainWindow(QMainWindow):
         self.clear_selection()
         button.setChecked(True)
         self.stack.setCurrentWidget(self.profile_page)
+
+    def show_gallery_tab(self) -> None:
+        self.clear_selection()
+        if hasattr(self, "gallery_btn"):
+            self.gallery_btn.setChecked(True)
+        self.stack.setCurrentWidget(self.gallery_page)
 
     def show_dashboard_page(self, button: SidebarButton) -> None:
         self.clear_selection()

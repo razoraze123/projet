@@ -25,6 +25,7 @@ import csv
 
 from ...common.fileio import write_lines_txt
 from .. import history
+from ui_helpers import show_toast
 
 
 VERSION_COLLECTION_WIDGET = 3  # pagination modes + live logs
@@ -415,6 +416,7 @@ class CollectionWidget(QWidget):
         if not self._urls:
             return
         QGuiApplication.clipboard().setText("\n".join(self._urls))
+        show_toast(self, "Liens copiés dans le presse-papiers.")
 
     def console_clear(self) -> None:
         self.console.clear()
