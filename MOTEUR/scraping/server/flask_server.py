@@ -11,13 +11,19 @@ so the UI remains responsive.
 
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
+import csv
 import datetime as _dt
+from datetime import datetime
+import json
+import logging
 import os
+import re
 import threading
 import time
 import uuid
-import logging
 from pathlib import Path
+from urllib.parse import quote
+from functools import wraps
 
 from flask import Flask, request, jsonify, send_file
 from werkzeug.serving import make_server
@@ -139,6 +145,33 @@ class FlaskBridgeServer:
     def _mount_routes(self) -> None:
         app = self.app
 
+        # CONSTANTES / CONFIG ---------------------------------------------
+        image_exts = IMAGE_EXTS
+
+        # UTILS -----------------------------------------------------------
+        def _load_products_file(path: Path) -> list[dict]:
+            if path.suffix.lower() == ".json":
+                with path.open("r", encoding="utf-8") as f:
+                    data = json.load(f) or []
+                return data if isinstance(data, list) else []
+            if path.suffix.lower() == ".csv":
+                with path.open("r", encoding="utf-8", newline="") as f:
+                    return list(csv.DictReader(f))
+            raise ValueError("unsupported file type")
+
+        # SÉCURITÉ -------------------------------------------------------
+        def require_api_key(fn):
+            @wraps(fn)
+            def wrapper(*args, **kwargs):
+                key = request.headers.get("X-API-KEY", "")
+                if not self.api_key or key != self.api_key:
+                    return jsonify({"error": "unauthorized"}), 401
+                return fn(*args, **kwargs)
+
+            return wrapper
+
+        # ENDPOINTS ------------------------------------------------------
+
         @app.get("/health")
         def health() -> Any:
             return (
@@ -152,24 +185,14 @@ class FlaskBridgeServer:
                 200,
             )
 
-        def require_key():
-            key = request.headers.get("X-API-KEY", "")
-            if not self.api_key or key != self.api_key:
-                return jsonify({"error": "unauthorized"}), 401
-            return None
-
         @app.get("/aliases")
+        @require_api_key
         def get_aliases() -> Any:
-            auth = require_key()
-            if auth:
-                return auth
             return jsonify(self.path_aliases)
 
         @app.post("/aliases")
+        @require_api_key
         def post_aliases() -> Any:
-            auth = require_key()
-            if auth:
-                return auth
             data = request.get_json(force=True, silent=True) or {}
             for k, v in (data.items() if isinstance(data, dict) else []):
                 if isinstance(v, str):
@@ -178,10 +201,8 @@ class FlaskBridgeServer:
             return jsonify(self.path_aliases), 200
 
         @app.get("/files/list")
+        @require_api_key
         def files_list() -> Any:
-            auth = require_key()
-            if auth:
-                return auth
             raw_folder = (request.args.get("folder") or "").strip()
             folder = (
                 self._resolve_folder(raw_folder)
@@ -203,11 +224,12 @@ class FlaskBridgeServer:
             files = [
                 f.name
                 for f in p.iterdir()
-                if f.is_file() and f.suffix.lower() in IMAGE_EXTS
+                if f.is_file() and f.suffix.lower() in image_exts
             ]
             base = request.host_url.rstrip("/")
             urls = [
-                f"{base}/files/raw?folder={raw_folder}&name={name}" for name in files
+                f"{base}/files/raw?folder={quote(raw_folder)}&name={quote(name)}"
+                for name in files
             ]
             return jsonify(
                 {
@@ -219,10 +241,8 @@ class FlaskBridgeServer:
             )
 
         @app.get("/files/raw")
+        @require_api_key
         def files_raw() -> Any:
-            auth = require_key()
-            if auth:
-                return auth
             raw_folder = (request.args.get("folder") or "").strip()
             name = (request.args.get("name") or "").strip()
             if not name:
@@ -246,7 +266,7 @@ class FlaskBridgeServer:
                     ),
                     404,
                 )
-            if p.suffix.lower() not in IMAGE_EXTS:
+            if p.suffix.lower() not in image_exts:
                 return (
                     jsonify(
                         {
@@ -258,11 +278,57 @@ class FlaskBridgeServer:
                 )
             return send_file(str(p), as_attachment=False)
 
+        @app.get("/products")
+        @require_api_key
+        def products() -> Any:
+            raw_path = (request.args.get("path") or "").strip()
+            if not raw_path:
+                return jsonify({"total": 0, "count": 0, "products": []})
+
+            path_str = (
+                self._resolve_folder(raw_path)
+                if hasattr(self, "_resolve_folder")
+                else raw_path
+            )
+            p = Path(path_str)
+            if not p.exists() or not p.is_file():
+                return (
+                    jsonify(
+                        {
+                            "error": "invalid_request",
+                            "detail": f"file not found: {path_str}",
+                        }
+                    ),
+                    400,
+                )
+            try:
+                data = _load_products_file(p)
+            except Exception as e:
+                return (
+                    jsonify(
+                        {"error": "invalid_request", "detail": str(e)}
+                    ),
+                    400,
+                )
+
+            def _to_int(val: str, default: int) -> int:
+                try:
+                    return max(int(val), 0)
+                except Exception:
+                    return default
+
+            offset = _to_int(request.args.get("offset", "0"), 0)
+            limit = _to_int(request.args.get("limit", "0"), 0)
+
+            total = len(data)
+            items = data[offset:]
+            if limit:
+                items = items[:limit]
+            return jsonify({"total": total, "count": len(items), "products": items})
+
         @app.post("/scrape")
+        @require_api_key
         def scrape() -> Any:
-            auth = require_key()
-            if auth:
-                return auth
             data = request.get_json(force=True, silent=True) or {}
             url = data.get("url")
             selector = data.get("selector")
@@ -278,10 +344,8 @@ class FlaskBridgeServer:
             return jsonify({"job_id": st.job_id, "message": "accepted"}), 202
 
         @app.post("/actions/image-edit")
+        @require_api_key
         def image_edit() -> Any:
-            auth = require_key()
-            if auth:
-                return auth
             data = request.get_json(force=True, silent=True) or {}
             raw_src = ((data.get("source") or {}).get("folder") or "").strip()
             src = self._resolve_folder(raw_src)
@@ -308,7 +372,6 @@ class FlaskBridgeServer:
                     ),
                     400,
                 )
-            image_exts = {".jpg", ".jpeg", ".png", ".webp"}
             has_images = any(
                 pp.suffix.lower() in image_exts for pp in p.iterdir() if pp.is_file()
             )
@@ -339,27 +402,21 @@ class FlaskBridgeServer:
             return jsonify({"job_id": st.job_id, "message": "accepted"}), 202
 
         @app.get("/jobs/<job_id>")
+        @require_api_key
         def job_status(job_id: str) -> Any:
-            auth = require_key()
-            if auth:
-                return auth
             st = self.jobs.jobs.get(job_id)
             if not st:
                 return jsonify({"error": "not_found"}), 404
             return jsonify(st.__dict__)
 
         @app.get("/jobs")
+        @require_api_key
         def list_jobs() -> Any:
-            auth = require_key()
-            if auth:
-                return auth
             return jsonify([j.__dict__ for j in self.jobs.jobs.values()])
 
         @app.get("/profiles")
+        @require_api_key
         def profiles() -> Any:
-            auth = require_key()
-            if auth:
-                return auth
             profs = load_profiles()
             out = [
                 {"name": p.get("name", ""), "selector": p.get("selector", "")}
@@ -369,10 +426,8 @@ class FlaskBridgeServer:
             return jsonify(out), 200
 
         @app.post("/profiles")
+        @require_api_key
         def add_profile_route() -> Any:
-            auth = require_key()
-            if auth:
-                return auth
             data = request.get_json(force=True, silent=True) or {}
             name = (data.get("name") or "").strip()
             selector = (data.get("selector") or "").strip()
@@ -406,17 +461,13 @@ class FlaskBridgeServer:
             return jsonify({"name": name, "selector": selector}), 201
 
         @app.get("/history")
+        @require_api_key
         def hist() -> Any:
-            auth = require_key()
-            if auth:
-                return auth
             return jsonify(load_history())
 
         @app.get("/debug/ping")
+        @require_api_key
         def debug_ping() -> Any:
-            auth = require_key()
-            if auth:
-                return auth
             from PySide6.QtCore import QCoreApplication
 
             return jsonify(
