@@ -14,6 +14,8 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Slot, QProcess, QCoreApplication
 
+from ui_helpers import show_toast, busy_dialog
+
 from .theme import load_theme, save_theme, apply_theme
 from MOTEUR.scraping.utils.restart import relaunch_current_process
 from MOTEUR.scraping.utils.update import PROJECT_ROOT
@@ -104,32 +106,44 @@ class SettingsWidget(QWidget):
             )
             return
 
+        if getattr(self, "_gitBusy", False):
+            return
+        self._gitBusy = True
         self.update_btn.setEnabled(False)
-        self.update_btn.setText("Mise à jour en cours…")
+        self.git_progress_ctx = busy_dialog(self, "Mise à jour en cours…")
+        self._git_dlg = self.git_progress_ctx.__enter__()
+
         self._append_log(f"> git pull origin main (cwd={root})")
         self._git_proc.setWorkingDirectory(str(root))
         self._git_proc.start("git", ["pull", "origin", "main"])
 
         if not self._git_proc.waitForStarted(2000):
+            if hasattr(self, "git_progress_ctx") and self.git_progress_ctx:
+                self.git_progress_ctx.__exit__(None, None, None)
+            self._gitBusy = False
             self.update_btn.setEnabled(True)
-            self.update_btn.setText("Mettre à jour")
-            QMessageBox.critical(
+            show_toast(
                 self,
-                "Mettre à jour",
                 "Impossible de démarrer Git. Est-il installé et dans le PATH ?",
+                error=True,
             )
 
     # ------------------------------------------------------------------
     def _on_git_finished(self, code: int, status) -> None:
-        self.update_btn.setEnabled(True)
-        self.update_btn.setText("Mettre à jour")
+        try:
+            if hasattr(self, "git_progress_ctx") and self.git_progress_ctx:
+                self.git_progress_ctx.__exit__(None, None, None)
+        finally:
+            self._gitBusy = False
+            self.update_btn.setEnabled(True)
+
         if code == 0:
-            QMessageBox.information(self, "Mettre à jour", "Mise à jour réussie.")
+            show_toast(self, "Mise à jour terminée.")
         else:
-            QMessageBox.critical(
+            show_toast(
                 self,
-                "Mettre à jour",
-                f"Échec du 'git pull' (code {code}). Consulte les logs.",
+                f"Échec de la mise à jour Git.",
+                error=True,
             )
 
     # ------------------------------------------------------------------

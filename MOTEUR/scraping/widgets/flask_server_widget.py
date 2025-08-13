@@ -18,6 +18,7 @@ import json, requests
 import os
 from pathlib import Path
 import secrets
+from ui_helpers import show_toast
 
 from ..server.flask_server import FlaskBridgeServer
 
@@ -145,6 +146,20 @@ class FlaskServerWidget(QWidget):
             self.url_label.text().replace("URL publique : ", "")
         )
 
+    def _request(self, method: str, url: str, **kwargs):
+        try:
+            r = requests.request(method, url, timeout=kwargs.pop("timeout", 10), **kwargs)
+            if r.status_code == 401:
+                show_toast(self, "Clé API absente ou invalide (401).", error=True)
+                return None
+            r.raise_for_status()
+            return r
+        except requests.Timeout:
+            show_toast(self, "Requête expirée (timeout).", error=True)
+        except Exception as e:
+            show_toast(self, f"Erreur API: {e}", error=True)
+        return None
+
     # ------------------------------------------------------------------
     def _load_cfg(self) -> None:
         try:
@@ -248,11 +263,12 @@ class FlaskServerWidget(QWidget):
                 else f"http://localhost:{port}"
             )
             url = base.rstrip("/") + "/health"
-            r = requests.get(
-                url, headers={"ngrok-skip-browser-warning": "1"}, timeout=10
+            r = self._request(
+                "get", url, headers={"ngrok-skip-browser-warning": "1"}
             )
-            self._append(f"[health] GET {url} -> {r.status_code}")
-            self._append(r.text or "<no body>")
+            if r:
+                self._append(f"[health] GET {url} -> {r.status_code}")
+                self._append(r.text or "<no body>")
         except Exception as e:
             self._append(f"❌ health error: {e}")
 
@@ -294,9 +310,12 @@ class FlaskServerWidget(QWidget):
                 "operations": ops,
                 "target_subdir": tgt,
             }
-            r = requests.post(url, headers=headers, data=json.dumps(payload), timeout=15)
-            if r.status_code != 202:
-                self._append(f"❌ {r.status_code}: {r.text}")
+            r = self._request(
+                "post", url, headers=headers, data=json.dumps(payload), timeout=15
+            )
+            if not r or r.status_code != 202:
+                if r:
+                    self._append(f"❌ {r.status_code}: {r.text}")
                 return
             self._last_job_id = r.json().get("job_id", "")
             self._append(f"🚀 Action lancée — job_id: {self._last_job_id}")
@@ -313,7 +332,8 @@ class FlaskServerWidget(QWidget):
             api_key = self.api_key.text().strip()
             url = f"http://localhost:{port}/jobs/{self._last_job_id}"
             headers = {"X-API-KEY": api_key}
-            r = requests.get(url, headers=headers, timeout=10)
-            self._append(r.text)
+            r = self._request("get", url, headers=headers, timeout=10)
+            if r:
+                self._append(r.text)
         except Exception as e:
             self._append(f"❌ Erreur status: {e}")
