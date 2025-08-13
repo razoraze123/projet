@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Slot
 import json, requests
 import os
+from log_safe import open_utf8
 from pathlib import Path
 import secrets
 from ui_helpers import show_toast
@@ -164,7 +165,7 @@ class FlaskServerWidget(QWidget):
     def _load_cfg(self) -> None:
         try:
             if os.path.exists(CFG_FILE):
-                with open(CFG_FILE, "r", encoding="utf-8") as f:
+                with open_utf8(CFG_FILE, "r") as f:
                     cfg = json.load(f)
                 self.port.setText(str(cfg.get("port", 5001)))
                 self.api_key.setText(cfg.get("api_key", ""))
@@ -194,7 +195,7 @@ class FlaskServerWidget(QWidget):
         cfg["path_aliases"] = {
             "sample_folder": self.sample_alias.text().strip()
         }
-        with open(CFG_FILE, "w", encoding="utf-8") as f:
+        with open_utf8(CFG_FILE, "w") as f:
             json.dump(cfg, f, indent=2, ensure_ascii=False)
         return cfg
 

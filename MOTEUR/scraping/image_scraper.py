@@ -7,6 +7,7 @@ from urllib.parse import urljoin, urlparse, unquote
 import unicodedata
 
 from datetime import datetime
+from log_safe import print_safe
 
 import requests
 from selenium import webdriver
@@ -335,10 +336,10 @@ def _simulate_slider_interaction(driver: ChromeDriver) -> None:
         dots = driver.find_elements(By.CSS_SELECTOR, ".flickity-page-dots .dot")
         for i, dot in enumerate(dots):
             driver.execute_script("arguments[0].click();", dot)
-            print(f"🟡 Clic sur le point {i+1}/{len(dots)}")
+            print_safe(f"🟡 Clic sur le point {i+1}/{len(dots)}")
             time.sleep(1.2)
     except Exception as e:
-        print(f"⚠️ Aucun slider détecté ou erreur : {e}")
+        print_safe(f"⚠️ Aucun slider détecté ou erreur : {e}")
 
 
 def _extract_urls(driver: ChromeDriver, selector: str) -> List[str]:
@@ -383,7 +384,7 @@ def _extract_urls(driver: ChromeDriver, selector: str) -> List[str]:
 
 def _download(url: str, folder: Path) -> None:
     if url.startswith("data:image"):
-        print(f"\u26A0\uFE0F Ignoré (image base64) : {url[:50]}...")
+        print_safe(f"\u26A0\uFE0F Ignoré (image base64) : {url[:50]}...")
         return
 
     try:
@@ -393,16 +394,16 @@ def _download(url: str, folder: Path) -> None:
         # Vérifie que la réponse est bien une image
         content_type = resp.headers.get("Content-Type", "")
         if not content_type.startswith("image/"):
-            print(f"\u274c Mauvais type de contenu pour {url}: {content_type}")
+            print_safe(f"\u274c Mauvais type de contenu pour {url}: {content_type}")
             return
 
         # Ignore les contenus vides ou trop petits pour être une image réelle
         if not resp.content or len(resp.content) < 100:
-            print(f"\u26A0\uFE0F Réponse vide ou suspecte pour {url}")
+            print_safe(f"\u26A0\uFE0F Réponse vide ou suspecte pour {url}")
             return
 
     except Exception as exc:
-        print(f"\u274c Erreur lors du téléchargement de {url}: {exc}")
+        print_safe(f"\u274c Erreur lors du téléchargement de {url}: {exc}")
         return
 
     # Enregistrement avec gestion de collision de nom
@@ -448,7 +449,7 @@ def scrape_images(
     ``keep_driver`` is ``True``, the Selenium driver is returned alongside the
     image count and left open for further processing by the caller.
     """
-    print("Chargement...")
+    print_safe("Chargement...")
     driver = _create_driver()
     try:
         driver.get(page_url)
@@ -460,11 +461,11 @@ def scrape_images(
         urls = _extract_urls(driver, selector)
         total = len(urls)
         if total == 0:
-            print(
+            print_safe(
                 "⚠️ Aucune image trouvée. Vérifie si le slider charge bien dynamiquement."
             )
         else:
-            print(f"{total} images trouv\u00e9es")
+            print_safe(f"{total} images trouv\u00e9es")
     finally:
         if not keep_driver:
             driver.quit()
@@ -473,9 +474,9 @@ def scrape_images(
     images_dir = base_dir / _folder_from_url(page_url)
     images_dir.mkdir(parents=True, exist_ok=True)
     for i, url in enumerate(urls, 1):
-        print(f"T\u00e9l\u00e9chargement de l'image n\u00b0{i}/{total}")
+        print_safe(f"T\u00e9l\u00e9chargement de l'image n\u00b0{i}/{total}")
         _download(url, images_dir)
-    print("\u2705 Termin\u00e9")
+    print_safe("\u2705 Termin\u00e9")
 
     if keep_driver:
         return total, driver
@@ -571,7 +572,7 @@ def scrape_variants(driver: ChromeDriver) -> dict[str, str]:
                 url = build_uploads_url(product_slug, variant_slug)
                 mapping[value] = url
     except Exception as exc:
-        print(f"⚠️ Erreur lors du scraping des variantes: {exc}")
+        print_safe(f"⚠️ Erreur lors du scraping des variantes: {exc}")
 
     return mapping
 

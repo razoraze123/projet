@@ -13,10 +13,11 @@ from PySide6.QtWidgets import (
     QApplication,
     QMessageBox,
 )
-from PySide6.QtCore import Qt, Slot, QThread, QTimer, QProcess
+from PySide6.QtCore import Qt, Slot, QThread, QTimer, QProcess, QProcessEnvironment
 from PySide6.QtGui import QClipboard
 from pathlib import Path
 
+from log_safe import open_utf8
 from .. import profile_manager as pm
 from .. import history
 
@@ -202,7 +203,7 @@ class ImageScraperWidget(QWidget):
             return
 
         history.save_last_file(file_path)
-        with open(path, "r", encoding="utf-8") as f:
+        with open_utf8(path) as f:
             urls = [line.strip() for line in f if line.strip()]
         if not urls:
             self.console.append("❌ Aucun URL dans le fichier")
@@ -255,6 +256,10 @@ class ImageScraperWidget(QWidget):
 
         script = Path(__file__).resolve().parents[3] / "scrape_subprocess.py"
         self.proc = QProcess(self)
+        env = QProcessEnvironment.systemEnvironment()
+        env.insert("PYTHONUTF8", "1")
+        env.insert("PYTHONIOENCODING", "utf-8")
+        self.proc.setProcessEnvironment(env)
         self.proc.setProgram(sys.executable)
         self.proc.setArguments([str(script), *args])
         self.proc.readyReadStandardOutput.connect(self._on_proc_stdout)

@@ -3,6 +3,7 @@ import os
 import sys
 import subprocess
 import time
+from log_safe import print_safe
 
 def _build_relaunch_argv() -> list[str]:
     py = sys.executable or "python"
@@ -19,12 +20,12 @@ def _build_relaunch_argv() -> list[str]:
 def relaunch_current_process(delay_sec: float = 0.25, *, cwd: str | None = None) -> None:
     argv = _build_relaunch_argv()
     try:
-        print(f"[restart] sys.executable = {sys.executable}")
-        print(f"[restart] sys.argv       = {sys.argv}")
-        print(f"[restart] relaunch argv  = {argv}")
+        print_safe(f"[restart] sys.executable = {sys.executable}")
+        print_safe(f"[restart] sys.argv       = {sys.argv}")
+        print_safe(f"[restart] relaunch argv  = {argv}")
         if cwd is None:
             cwd = os.getcwd()
-        print(f"[restart] cwd            = {cwd}")
+        print_safe(f"[restart] cwd            = {cwd}")
 
         popen_kwargs = dict(
             cwd=cwd,
@@ -37,5 +38,5 @@ def relaunch_current_process(delay_sec: float = 0.25, *, cwd: str | None = None)
             popen_kwargs["creationflags"] = DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
         subprocess.Popen(argv, **popen_kwargs)
     except Exception as e:
-        print(f"[restart] Erreur au relancement: {e}")
+        print_safe(f"[restart] Erreur au relancement: {e}")
     time.sleep(delay_sec)

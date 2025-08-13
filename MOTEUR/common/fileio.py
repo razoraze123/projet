@@ -1,6 +1,7 @@
 from __future__ import annotations
 from pathlib import Path
 from typing import Iterable
+from log_safe import open_utf8
 
 
 def write_lines_txt(path: str | Path, lines: Iterable[str]) -> str:
@@ -28,7 +29,7 @@ def write_lines_txt(path: str | Path, lines: Iterable[str]) -> str:
             seen.add(s)
             cleaned.append(s)
 
-    with p.open("w", encoding="utf-8") as f:  # newline par défaut => CRLF sous Windows
+    with open_utf8(p, "w") as f:  # newline par défaut => CRLF sous Windows
         f.write("\n".join(cleaned))
         f.write("\n")  # s’assurer d’une dernière ligne
 

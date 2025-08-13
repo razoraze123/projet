@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Signal, Slot, QCoreApplication, QProcess
 from pathlib import Path
 import os
+from log_safe import open_utf8
 
 
 class ScrapingSettingsWidget(QWidget):
@@ -135,7 +136,7 @@ class ScrapingSettingsWidget(QWidget):
         max_size = 800_000  # ignore fichiers texte > 800 KB
 
         try:
-            with open(out, "w", encoding="utf-8") as w:   # <= ÉCRASE à chaque clic
+            with open_utf8(out, "w") as w:   # <= ÉCRASE à chaque clic
                 for dirpath, dirnames, filenames in os.walk(root):
                     dn = os.path.basename(dirpath)
                     if dn in ignore_dirs:
