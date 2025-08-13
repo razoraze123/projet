@@ -9,9 +9,9 @@ import unicodedata
 from datetime import datetime
 
 import requests
-from selenium.webdriver import Chrome
+from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
+from selenium.webdriver.chrome.webdriver import WebDriver as ChromeDriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
@@ -35,7 +35,7 @@ def build_uploads_url(
     return f"{UPLOADS_BASE_URL}{year}/{month:02d}/{product_slug}-{variant_slug}.jpg"
 
 
-def _create_driver(user_agent: str = DEFAULT_USER_AGENT) -> Chrome:
+def _create_driver(user_agent: str = DEFAULT_USER_AGENT) -> ChromeDriver:
     opts = Options()
     opts.add_argument("--headless=new")
     opts.add_argument("--disable-gpu")
@@ -51,16 +51,18 @@ def _create_driver(user_agent: str = DEFAULT_USER_AGENT) -> Chrome:
     opts.add_experimental_option("excludeSwitches", ["enable-automation"])
     opts.add_experimental_option("useAutomationExtension", False)
 
-    caps = DesiredCapabilities.CHROME.copy()
-    caps["pageLoadStrategy"] = "eager"
+    opts.page_load_strategy = "eager"
 
-    driver = Chrome(options=opts, desired_capabilities=caps)
+    driver = webdriver.Chrome(options=opts)
     driver.set_page_load_timeout(30)
-    driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {"source": "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"})
+    driver.execute_cdp_cmd(
+        "Page.addScriptToEvaluateOnNewDocument",
+        {"source": "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"},
+    )
     return driver
 
 
-def _scroll_page(driver: Chrome, pause: float = 0.5) -> None:
+def _scroll_page(driver: ChromeDriver, pause: float = 0.5) -> None:
     last_height = driver.execute_script("return document.body.scrollHeight")
     position = 0
     while position < last_height:
@@ -328,7 +330,7 @@ def scrape_collection_products(page_url: str) -> list[tuple[str, str]]:
     return scrape_collection_products_cancelable(page_url, lambda d: None, lambda: False, None)
 
 
-def _simulate_slider_interaction(driver: Chrome) -> None:
+def _simulate_slider_interaction(driver: ChromeDriver) -> None:
     try:
         dots = driver.find_elements(By.CSS_SELECTOR, ".flickity-page-dots .dot")
         for i, dot in enumerate(dots):
@@ -339,7 +341,7 @@ def _simulate_slider_interaction(driver: Chrome) -> None:
         print(f"⚠️ Aucun slider détecté ou erreur : {e}")
 
 
-def _extract_urls(driver: Chrome, selector: str) -> List[str]:
+def _extract_urls(driver: ChromeDriver, selector: str) -> List[str]:
     elements = driver.find_elements(By.CSS_SELECTOR, selector)
     urls: Set[str] = set()
 
@@ -439,7 +441,7 @@ def scrape_images(
     folder: str | Path = "images",
     *,
     keep_driver: bool = False,
-) -> int | tuple[int, Chrome]:
+) -> int | tuple[int, ChromeDriver]:
     """Download images from ``page_url`` into a subfolder of ``folder``.
 
     The subfolder name is derived from the URL's last path segment. When
@@ -480,7 +482,7 @@ def scrape_images(
     return total
 
 
-def scrape_variants(driver: Chrome) -> dict[str, str]:
+def scrape_variants(driver: ChromeDriver) -> dict[str, str]:
     """Extract product variant names and associated image URLs using ``driver``.
 
     ``driver`` must already be on the product page. Each variant input is
