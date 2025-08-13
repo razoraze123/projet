@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from PySide6.QtCore import QObject, Signal, QThread, Slot, Qt
-from PySide6.QtGui import QGuiApplication
+from PySide6.QtCore import QObject, Signal, QThread, Slot, Qt, QUrl
+from PySide6.QtGui import QGuiApplication, QDesktopServices
 from PySide6.QtWidgets import (
     QFileDialog,
     QLabel,
@@ -17,7 +17,13 @@ from PySide6.QtWidgets import (
     QSpinBox,
     QPlainTextEdit,
     QCheckBox,
+    QListWidget,
+    QListWidgetItem,
+    QAbstractItemView,
 )
+import csv
+
+from .. import history
 
 
 VERSION_COLLECTION_WIDGET = 3  # pagination modes + live logs
@@ -167,7 +173,16 @@ class CollectionWidget(QWidget):
         # Options ----------------------------------------------------------
         self.live_logs_cb = QCheckBox("Afficher les liens en direct")
         self.live_logs_cb.setChecked(True)
-        self.stats_lbl = QLabel()
+        self.show_live_cb = self.live_logs_cb
+
+        self.stats_lbl = getattr(self, "stats_lbl", None) or QLabel(
+            "Liens détectés : 0", self
+        )
+        self.badge_busy = getattr(self, "badge_busy", None) or QLabel("", self)
+        self.badge_busy.setVisible(False)
+        self.badge_busy.setStyleSheet(
+            "QLabel{padding:3px 8px; border-radius:9px; background:#9E9E9E; color:white; font-weight:600;}"
+        )
 
         self.list_btn = QPushButton("Scanner la collection")
         self.list_btn.clicked.connect(self._scan_collection)
@@ -179,11 +194,6 @@ class CollectionWidget(QWidget):
         self.save_btn = QPushButton("Enregistrer la liste…")
         self.save_btn.setEnabled(False)
         self.save_btn.clicked.connect(self._save_list)
-
-        self.copy_btn = QPushButton("Copier les liens")
-        self.copy_btn.clicked.connect(self._copy_links)
-        self.clear_btn = QPushButton("Effacer la console")
-        self.clear_btn.clicked.connect(self.console_clear)
 
         self.console = QTextEdit(readOnly=True)
 
@@ -200,13 +210,32 @@ class CollectionWidget(QWidget):
         row.addWidget(self.list_btn)
         row.addWidget(self.cancel_btn)
         row.addWidget(self.save_btn)
+        row.addWidget(self.badge_busy)
         layout.addLayout(row)
 
-        row2 = QHBoxLayout()
-        row2.addWidget(self.copy_btn)
-        row2.addWidget(self.clear_btn)
-        layout.addLayout(row2)
         layout.addWidget(self.console)
+
+        self.live_list = getattr(self, "live_list", None) or QListWidget(self)
+        self.live_list.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.live_list.itemActivated.connect(
+            lambda item: QDesktopServices.openUrl(QUrl(item.text()))
+        )
+        layout.addWidget(self.live_list)
+
+        actions = QHBoxLayout()
+        self.copy_btn = QPushButton("Tout copier")
+        self.copy_btn.clicked.connect(self._copy_links)
+        self.dedupe_btn = QPushButton("🧹 Supprimer doublons")
+        self.dedupe_btn.clicked.connect(self._dedupe_urls)
+        self.export_csv_btn = QPushButton("Exporter CSV")
+        self.export_csv_btn.clicked.connect(self._export_csv)
+        self.clear_btn = QPushButton("Effacer la console")
+        self.clear_btn.clicked.connect(self.console_clear)
+        actions.addWidget(self.copy_btn)
+        actions.addWidget(self.dedupe_btn)
+        actions.addWidget(self.export_csv_btn)
+        actions.addWidget(self.clear_btn)
+        layout.addLayout(actions)
 
         self.range_widget.hide()
         self.list_widget.hide()
@@ -215,10 +244,22 @@ class CollectionWidget(QWidget):
         self._worker: _CollectionWorker | None = None
 
     # ------------------------------------------------------------------
+    def showEvent(self, event):  # type: ignore[override]
+        super().showEvent(event)
+        try:
+            data = history.load_last_used()
+            if data and not self.url_edit.text().strip():
+                self.url_edit.setText(data.get("url", ""))
+        except Exception:
+            pass
+
+    # ------------------------------------------------------------------
     def _set_busy(self, busy: bool) -> None:
         self.list_btn.setEnabled(not busy)
         self.cancel_btn.setEnabled(busy)
         self.save_btn.setEnabled((not busy) and bool(self._urls))
+        self.badge_busy.setText("EN COURS…" if busy else "")
+        self.badge_busy.setVisible(busy)
         if busy:
             QGuiApplication.setOverrideCursor(Qt.BusyCursor)
         else:
@@ -247,6 +288,9 @@ class CollectionWidget(QWidget):
             urls_list = [u.strip() for u in self.urls_edit.toPlainText().splitlines() if u.strip()]
 
         self.console.append("▶️ Scan démarré…")
+        self._urls = []
+        self.stats_lbl.setText("Liens détectés : 0")
+        self.live_list.clear()
         self._set_busy(True)
 
         self._thread = QThread(self)
@@ -264,7 +308,7 @@ class CollectionWidget(QWidget):
         self._thread.started.connect(self._worker.run)
         self._worker.progress.connect(self.console.append)
         self._worker.page_progress.connect(self.stats_lbl.setText)
-        self._worker.link_found.connect(self.console.append)
+        self._worker.link_found.connect(self._on_link_detected)
         self._worker.result.connect(self._on_scan_ok)
         self._worker.error.connect(self._on_scan_err)
         self._worker.cancelled.connect(self._on_scan_cancelled)
@@ -321,12 +365,18 @@ class CollectionWidget(QWidget):
     @Slot(list)
     def _on_scan_ok(self, urls: list) -> None:
         self._urls = urls or []
+        self.stats_lbl.setText(f"Liens détectés : {len(self._urls)}")
         if not urls:
             self.console.append("⚠️ Aucun produit détecté.")
             self.save_btn.setEnabled(False)
         else:
             self.console.append(f"✅ {len(urls)} liens trouvés.")
             self.save_btn.setEnabled(True)
+        try:
+            data = history.load_last_used()
+            history.save_last_used(self.url_edit.text().strip(), data.get("folder", ""))
+        except Exception:
+            pass
 
     @Slot(str)
     def _on_scan_err(self, message: str) -> None:
@@ -369,3 +419,51 @@ class CollectionWidget(QWidget):
 
     def console_clear(self) -> None:
         self.console.clear()
+
+    # ------------------------------------------------------------------
+    def _on_link_detected(self, url: str) -> None:
+        self._urls.append(url)
+        self.stats_lbl.setText(f"Liens détectés : {len(self._urls)}")
+        self.console.append(url)
+        if self.show_live_cb.isChecked():
+            item = QListWidgetItem(url)
+            item.setToolTip(url)
+            self.live_list.addItem(item)
+
+    def _dedupe_urls(self) -> None:
+        before = len(self._urls)
+        self._urls = list(dict.fromkeys(self._urls))
+        after = len(self._urls)
+        self.stats_lbl.setText(f"Liens détectés : {after} (−{before-after} doublons)")
+        if self.show_live_cb.isChecked():
+            self.live_list.clear()
+            for u in self._urls:
+                item = QListWidgetItem(u)
+                item.setToolTip(u)
+                self.live_list.addItem(item)
+
+    def _export_csv(self) -> None:
+        if not self._urls:
+            QMessageBox.information(self, "Exporter", "Aucune donnée.")
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Exporter CSV",
+            "liens.csv",
+            "CSV Files (*.csv)",
+        )
+        if not path:
+            return
+        if not path.lower().endswith(".csv"):
+            path += ".csv"
+        try:
+            with open(path, "w", encoding="utf-8", newline="") as f:
+                writer = csv.writer(f)
+                writer.writerow(["url"])
+                for u in self._urls:
+                    writer.writerow([u])
+            QMessageBox.information(
+                self, "Exporter", f"✅ Liens exportés : {path}"
+            )
+        except Exception as e:
+            QMessageBox.critical(self, "Exporter", f"Erreur: {e}")
