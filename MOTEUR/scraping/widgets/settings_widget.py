@@ -9,7 +9,11 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Signal, Slot, QCoreApplication, QProcess
 from pathlib import Path
 import os
-from log_safe import open_utf8
+
+try:
+    from localapp.log_safe import open_utf8
+except ImportError:
+    from log_safe import open_utf8
 
 
 class ScrapingSettingsWidget(QWidget):

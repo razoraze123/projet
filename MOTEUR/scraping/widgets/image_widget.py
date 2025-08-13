@@ -17,7 +17,10 @@ from PySide6.QtCore import Qt, Slot, QThread, QTimer, QProcess, QProcessEnvironm
 from PySide6.QtGui import QClipboard
 from pathlib import Path
 
-from log_safe import open_utf8
+try:
+    from localapp.log_safe import open_utf8
+except ImportError:
+    from log_safe import open_utf8
 from .. import profile_manager as pm
 from .. import history
 

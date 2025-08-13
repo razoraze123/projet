@@ -1,7 +1,11 @@
 from __future__ import annotations
 from pathlib import Path
 from typing import Iterable
-from log_safe import open_utf8
+
+try:
+    from localapp.log_safe import open_utf8
+except ImportError:
+    from log_safe import open_utf8
 
 
 def write_lines_txt(path: str | Path, lines: Iterable[str]) -> str:

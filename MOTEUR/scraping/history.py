@@ -2,7 +2,11 @@ import json
 from pathlib import Path
 from datetime import datetime
 from typing import List, Dict
-from log_safe import open_utf8
+
+try:
+    from localapp.log_safe import open_utf8
+except ImportError:
+    from log_safe import open_utf8
 
 # Path to the history log file at project root
 HISTORY_FILE = Path(__file__).resolve().parents[2] / "scraping_history.json"

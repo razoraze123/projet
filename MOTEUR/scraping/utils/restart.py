@@ -3,7 +3,11 @@ import os
 import sys
 import subprocess
 import time
-from log_safe import print_safe
+
+try:
+    from localapp.log_safe import print_safe
+except ImportError:
+    from log_safe import print_safe
 
 def _build_relaunch_argv() -> list[str]:
     py = sys.executable or "python"
