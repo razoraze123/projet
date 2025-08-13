@@ -1,0 +1,77 @@
+---
+openapi: 3.0.0
+info:
+  title: Lamine Product Bridge API
+  version: "1.0.0"
+  description: API bridge for Lamine product scraping and image operations.
+servers:
+  - url: http://localhost:5001
+paths:
+  /health:
+    get:
+      summary: Health check
+      responses:
+        '200':
+          description: Service is healthy
+  /scrape:
+    post:
+      summary: Start scraping job
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                url:
+                  type: string
+                selector:
+                  type: string
+              required:
+                - url
+      responses:
+        '200':
+          description: Job started
+  /jobs/{job_id}:
+    get:
+      summary: Get job status
+      parameters:
+        - in: path
+          name: job_id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Job information
+  /profiles:
+    get:
+      summary: List profiles
+      responses:
+        '200':
+          description: Profiles listed
+  /history:
+    get:
+      summary: List scrape history
+      responses:
+        '200':
+          description: History listed
+  /actions/image-edit:
+    post:
+      summary: Edit image
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                source:
+                  type: object
+                operations:
+                  type: array
+                  items:
+                    type: object
+      responses:
+        '200':
+          description: Image edit job started
