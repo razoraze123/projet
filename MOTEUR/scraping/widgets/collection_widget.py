@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 )
 import csv
 
+from ...common.fileio import write_lines_txt
 from .. import history
 
 
@@ -342,14 +343,12 @@ class CollectionWidget(QWidget):
         if not path.lower().endswith(".txt"):
             path += ".txt"
 
-        # URLs uniques, lignes propres
         urls = self._urls
 
         try:
-            with open(path, "w", encoding="utf-8", newline="\n") as f:
-                f.write("\n".join(urls) + "\n")
+            saved_path = write_lines_txt(path, urls)
             QMessageBox.information(
-                self, "Enregistrer", f"✅ Liens enregistrés : {path}"
+                self, "Enregistrer", f"✅ Liens enregistrés : {saved_path}"
             )
         except Exception as e:
             QMessageBox.critical(self, "Enregistrer", f"Erreur: {e}")
