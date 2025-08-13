@@ -1,5 +1,9 @@
+from utf8_bootstrap import force_utf8_stdio
+force_utf8_stdio()
+
 from pathlib import Path
 import sys
+from log_safe import print_safe, open_utf8
 
 # Allow running this module directly by ensuring the project root is in
 # ``sys.path``.  When executed with ``python localapp/app.py`` the Python
@@ -26,7 +30,7 @@ try:
     from PySide6.QtCore import Qt, QPropertyAnimation, Slot, QEasingCurve
     from PySide6.QtGui import QIcon, QKeySequence, QShortcut
 except ModuleNotFoundError:
-    print("Install dependencies with pip install -r requirements.txt")
+    print_safe("Install dependencies with pip install -r requirements.txt")
     sys.exit(1)
 
 from MOTEUR.scraping.widgets.scrap_widget import ScrapWidget
@@ -542,7 +546,7 @@ if __name__ == "__main__":
     path = pathlib.Path("crash.log")
     try:
         faulthandler.enable(all_threads=True)
-        faulthandler.dump_traceback_later(30, repeat=True, file=open(path, "a", encoding="utf-8"))
+        faulthandler.dump_traceback_later(30, repeat=True, file=open_utf8(path, "a"))
     except Exception:
         pass
 

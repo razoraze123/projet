@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 from datetime import datetime
 from typing import List, Dict
+from log_safe import open_utf8
 
 # Path to the history log file at project root
 HISTORY_FILE = Path(__file__).resolve().parents[2] / "scraping_history.json"
@@ -14,14 +15,14 @@ def _read_json(path: Path) -> List[Dict]:
     if not path.exists():
         return []
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open_utf8(path, "r") as f:
             return json.load(f) or []
     except Exception:
         return []
 
 
 def _write_json(path: Path, data) -> None:
-    with open(path, "w", encoding="utf-8") as f:
+    with open_utf8(path, "w") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
 
 
@@ -59,7 +60,7 @@ def load_last_used() -> Dict[str, str]:
     if not LAST_USED_FILE.exists():
         return {"url": "", "folder": ""}
     try:
-        with open(LAST_USED_FILE, "r", encoding="utf-8") as f:
+        with open_utf8(LAST_USED_FILE, "r") as f:
             data = json.load(f)
         if isinstance(data, dict):
             return {"url": data.get("url", ""), "folder": data.get("folder", "")}
@@ -78,7 +79,7 @@ def load_last_file() -> str:
     if not LAST_USED_FILE.exists():
         return ""
     try:
-        with open(LAST_USED_FILE, "r", encoding="utf-8") as f:
+        with open_utf8(LAST_USED_FILE, "r") as f:
             data = json.load(f)
         if isinstance(data, dict):
             return data.get("last_file", "")
