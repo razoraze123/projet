@@ -537,6 +537,15 @@ class MainWindow(QMainWindow):
 
 
 if __name__ == "__main__":
+    import faulthandler, pathlib
+
+    path = pathlib.Path("crash.log")
+    try:
+        faulthandler.enable(all_threads=True)
+        faulthandler.dump_traceback_later(30, repeat=True, file=open(path, "a", encoding="utf-8"))
+    except Exception:
+        pass
+
     app = QApplication(sys.argv)
     apply_theme(load_theme())
     interface = MainWindow()

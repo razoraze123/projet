@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
     QApplication,
     QMessageBox,
 )
-from PySide6.QtCore import Qt, Slot, QThread
+from PySide6.QtCore import Qt, Slot, QThread, QTimer, QProcess
 from PySide6.QtGui import QClipboard
 from pathlib import Path
 
@@ -58,6 +58,7 @@ class ImageScraperWidget(QWidget):
         folder_layout.addWidget(browse_btn)
 
         self.variants_checkbox = QCheckBox("Scraper aussi les variantes")
+        self.isolate_checkbox = QCheckBox("Isoler (QProcess)")
 
         self.start_btn = QPushButton("Lancer")
         self.start_btn.clicked.connect(self._start)
@@ -77,6 +78,12 @@ class ImageScraperWidget(QWidget):
         self.progress_bar = QProgressBar()
         self.progress_bar.hide()
 
+        self._log_buffer: list[str] = []
+        self._log_flusher = QTimer(self)
+        self._log_flusher.setInterval(80)
+        self._log_flusher.timeout.connect(self._flush_logs)
+        self._log_flusher.start()
+
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel("Fichier :"))
         layout.addLayout(file_layout)
@@ -85,6 +92,7 @@ class ImageScraperWidget(QWidget):
         layout.addWidget(QLabel("Dossier:"))
         layout.addLayout(folder_layout)
         layout.addWidget(self.variants_checkbox)
+        layout.addWidget(self.isolate_checkbox)
         layout.addLayout(buttons_layout)
         layout.addWidget(self.console)
         layout.addWidget(self.progress_bar)
@@ -208,6 +216,11 @@ class ImageScraperWidget(QWidget):
         self.progress_bar.setValue(0)
         self.export_data = []
 
+        if self.isolate_checkbox.isChecked():
+            args = [file_path, selector, folder, "1" if self.variants_checkbox.isChecked() else "0"]
+            self._start_scrape_qprocess(args)
+            return
+
         # thread + worker
         from .image_worker import ImageJobWorker
         self._thread = QThread(self)
@@ -216,7 +229,7 @@ class ImageScraperWidget(QWidget):
 
         # connexions
         self._thread.started.connect(self._worker.run)
-        self._worker.log.connect(self.console.append)  # thread-safe (queued)
+        self._worker.log.connect(lambda s: self._log_buffer.append(s))
         def _on_item_done(url, total, variants):
             self.console.append(f"✅ {url} - {total} images")
             for name, img in (variants or {}).items():
@@ -226,7 +239,7 @@ class ImageScraperWidget(QWidget):
             if self.storage_widget and variants:
                 self.storage_widget.add_product("", list(variants.keys()))
         self._worker.item_done.connect(_on_item_done)
-        self._worker.progress.connect(lambda done, tot: self.progress_bar.setValue(done))
+        self._worker.progress.connect(self._on_progress)
         def _on_finished():
             self.progress_bar.hide()
             self.start_btn.setEnabled(True)
@@ -236,4 +249,61 @@ class ImageScraperWidget(QWidget):
 
         self._thread.start()
 
+    def _start_scrape_qprocess(self, args: list[str]) -> None:
+        import sys, json
+        from pathlib import Path
+
+        script = Path(__file__).resolve().parents[3] / "scrape_subprocess.py"
+        self.proc = QProcess(self)
+        self.proc.setProgram(sys.executable)
+        self.proc.setArguments([str(script), *args])
+        self.proc.readyReadStandardOutput.connect(self._on_proc_stdout)
+        self.proc.finished.connect(self._on_proc_finished)
+        self.proc.start()
+
+    def _on_proc_stdout(self) -> None:
+        import json
+
+        data = bytes(self.proc.readAllStandardOutput()).decode("utf-8", errors="ignore")
+        for line in data.splitlines():
+            try:
+                evt = json.loads(line)
+            except Exception:
+                self._log_buffer.append(line)
+                continue
+            if evt.get("event") == "log":
+                self._log_buffer.append(evt.get("msg", ""))
+            elif evt.get("event") == "progress":
+                self._on_progress(int(evt.get("done", 0)), int(evt.get("total", 0)))
+            elif evt.get("event") == "item":
+                url = evt.get("url", "")
+                total = evt.get("total", 0)
+                self._log_buffer.append(f"✅ {url} - {total} images")
+                variants = evt.get("variants") or {}
+                for name, img in variants.items():
+                    self._log_buffer.append(f"  • {name}: {img}")
+                    self.export_data.append({"URL": url, "Variant": name, "Image": img})
+                if self.storage_widget and variants:
+                    self.storage_widget.add_product("", list(variants.keys()))
+            elif evt.get("event") == "done":
+                self._log_buffer.append(f"Terminé, total={evt.get('total', 0)}")
+
+    def _on_proc_finished(self, code: int, status) -> None:
+        self.progress_bar.hide()
+        self.start_btn.setEnabled(True)
+        self._log_buffer.append(f"Process scraping terminé (code={code}).")
+
+
+    def _on_progress(self, done: int, total: int) -> None:
+        self.progress_bar.setMaximum(max(1, total))
+        self.progress_bar.setValue(done)
+        if done == total or done % 3 == 0:
+            self._log_buffer.append(f"Progression {done}/{total}")
+
+    def _flush_logs(self) -> None:
+        if not self._log_buffer:
+            return
+        chunk = "\n".join(self._log_buffer)
+        self._log_buffer.clear()
+        self.console.append(chunk)
 
