@@ -60,6 +60,156 @@ def _scroll_page(driver: webdriver.Chrome, pause: float = 0.5) -> None:
         last_height = driver.execute_script("return document.body.scrollHeight")
 
 
+def infer_pagination_template(url: str) -> tuple[str | None, int]:
+    """
+    Retourne (template, start_page) si détecté, sinon (None, 1).
+    """
+    m = re.search(r"([?&](?:page|paged)=(\d+))", url)
+    if m:
+        full, num = m.groups()
+        tpl = url.replace(full, full.split("=")[0] + "={page}")
+        return tpl, int(num)
+    m = re.search(r"/page/(\d+)", url)
+    if m:
+        num = m.group(1)
+        tpl = re.sub(r"/page/\d+", "/page/{page}", url)
+        return tpl, int(num)
+    return None, 1
+
+
+def generate_page_urls(template: str, start: int, end: int) -> list[str]:
+    return [template.replace("{page}", str(i)) for i in range(start, end + 1)]
+
+
+def find_next_link(driver) -> str | None:
+    selectors = [
+        "a[rel='next']",
+        "link[rel='next']",
+        "nav .pagination a.next",
+        ".pagination [aria-label*='Suivant']",
+        ".pagination [aria-label*='Next']",
+        "a.next",
+    ]
+    for sel in selectors:
+        try:
+            el = driver.find_element(By.CSS_SELECTOR, sel)
+            href = (el.get_attribute("href") or "").strip()
+            if href:
+                if href.startswith("/"):
+                    return urljoin(driver.current_url, href)
+                return href
+        except Exception:
+            continue
+    return None
+
+
+def scrape_collection_products_paginated(
+    page_urls: list[str],
+    on_driver_ready: Callable[[Any], None],
+    is_cancelled: Callable[[], bool],
+    log: Callable[[str], None] | None,
+    link_cb: Callable[[str], None] | None,
+    page_cb: Callable[[int, int, int, int], None] | None = None,
+    *,
+    auto_follow: bool = False,
+    max_pages: int = 20,
+) -> list[str]:
+    """
+    Parcourt chaque URL de collection, extrait les liens produits (href),
+    déduplique globalement, annulation coopérative.
+    """
+    driver = _create_driver()
+    on_driver_ready(driver)
+    seen: set[str] = set()
+    try:
+        idx = 0
+        while idx < len(page_urls):
+            if is_cancelled():
+                raise RuntimeError("cancelled")
+            url = page_urls[idx]
+            driver.get(url)
+            if log:
+                log(f"📄 {idx+1}/{len(page_urls)} — {url}")
+            WebDriverWait(driver, 20).until(
+                EC.presence_of_element_located(
+                    (
+                        By.CSS_SELECTOR,
+                        "product-card,.product-card,[data-product-card],ul#product-grid li,.collection .grid .grid__item",
+                    )
+                )
+            )
+            _scroll_page(driver, pause=0.5)
+
+            for _ in range(3):
+                if is_cancelled():
+                    raise RuntimeError("cancelled")
+                try:
+                    btn = driver.find_element(
+                        By.CSS_SELECTOR,
+                        "button#product-grid-load-more,a.load-more,button.load-more",
+                    )
+                    if not btn.is_displayed() or not btn.is_enabled():
+                        break
+                    driver.execute_script("arguments[0].click();", btn)
+                    time.sleep(0.8)
+                    _scroll_page(driver, pause=0.3)
+                except Exception:
+                    break
+
+            cards = driver.find_elements(
+                By.CSS_SELECTOR,
+                "product-card,.product-card,[data-product-card],ul#product-grid li,.collection .grid .grid__item",
+            )
+            before = len(seen)
+            for card in cards:
+                if is_cancelled():
+                    raise RuntimeError("cancelled")
+                a = None
+                for sel in (
+                    ".product-card__title a",
+                    "a[href^='/products/']",
+                    "a.card-information__link",
+                ):
+                    try:
+                        a = card.find_element(By.CSS_SELECTOR, sel)
+                        break
+                    except Exception:
+                        continue
+                if not a:
+                    continue
+                href = (
+                    a.get_attribute("href")
+                    or a.get_attribute("data-href")
+                    or ""
+                ).strip()
+                if href.startswith("/"):
+                    href = urljoin(url, href)
+                if href.startswith("http") and href not in seen:
+                    seen.add(href)
+                    if link_cb:
+                        link_cb(href)
+            new = len(seen) - before
+            if page_cb:
+                page_cb(idx + 1, len(page_urls), new, len(seen))
+
+            idx += 1
+            if auto_follow and len(page_urls) < max_pages:
+                nxt = find_next_link(driver)
+                if nxt and nxt not in page_urls:
+                    page_urls.append(nxt)
+
+        return sorted(seen)
+    except Exception as exc:
+        if str(exc) == "cancelled":
+            raise
+        raise RuntimeError(f"paginated scrape failed: {exc}") from exc
+    finally:
+        try:
+            driver.quit()
+        except Exception:
+            pass
+
+
 def scrape_collection_products_cancelable(
     page_url: str,
     on_driver_ready: Callable[[Any], None],
