@@ -1,6 +1,6 @@
 PySide6
 pytest
-selenium
+selenium>=4.10
 requests
 openpyxl
 Flask
