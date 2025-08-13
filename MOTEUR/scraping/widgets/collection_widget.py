@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PySide6.QtCore import QObject, Signal, QThread, Slot, Qt, QUrl
+from PySide6.QtCore import QObject, Signal, QThread, Slot, Qt, QUrl, QTimer
 from PySide6.QtGui import QGuiApplication, QDesktopServices
 from PySide6.QtWidgets import (
     QFileDialog,
@@ -198,6 +198,11 @@ class CollectionWidget(QWidget):
         self.save_btn.clicked.connect(self._save_list)
 
         self.console = QTextEdit(readOnly=True)
+        self._log_buffer: list[str] = []
+        self._log_flusher = QTimer(self)
+        self._log_flusher.setInterval(80)
+        self._log_flusher.timeout.connect(self._flush_logs)
+        self._log_flusher.start()
 
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel("URL :"))
@@ -308,7 +313,7 @@ class CollectionWidget(QWidget):
         self._worker.moveToThread(self._thread)
 
         self._thread.started.connect(self._worker.run)
-        self._worker.progress.connect(self.console.append)
+        self._worker.progress.connect(lambda s: self._log_buffer.append(s))
         self._worker.page_progress.connect(self.stats_lbl.setText)
         self._worker.link_found.connect(self._on_link_detected)
         self._worker.result.connect(self._on_scan_ok)
@@ -468,3 +473,10 @@ class CollectionWidget(QWidget):
             )
         except Exception as e:
             QMessageBox.critical(self, "Exporter", f"Erreur: {e}")
+
+    def _flush_logs(self) -> None:
+        if not self._log_buffer:
+            return
+        chunk = "\n".join(self._log_buffer)
+        self._log_buffer.clear()
+        self.console.append(chunk)

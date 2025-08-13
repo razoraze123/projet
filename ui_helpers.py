@@ -11,7 +11,8 @@ class Toast(QWidget):
         self.lbl.setWordWrap(True)
         self.lbl.setStyleSheet(
             "QLabel{padding:8px 12px;border-radius:8px;"
-            f"background:{'#C62828' if error else '#424242'};color:white;font-weight:600;}"
+            f"background:{'#C62828' if error else '#424242'};color:white;font-weight:600;"
+            "}"
         )
         self.lbl.adjustSize()
         self.resize(self.lbl.size())
