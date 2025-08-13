@@ -7,7 +7,11 @@ from urllib.parse import urljoin, urlparse, unquote
 import unicodedata
 
 from datetime import datetime
-from log_safe import print_safe
+
+try:
+    from localapp.log_safe import print_safe
+except ImportError:
+    from log_safe import print_safe
 
 import requests
 from selenium import webdriver

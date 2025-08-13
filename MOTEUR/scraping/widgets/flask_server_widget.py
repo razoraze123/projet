@@ -16,8 +16,12 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Slot
 import json, requests
 import os
-from log_safe import open_utf8
 from pathlib import Path
+
+try:
+    from localapp.log_safe import open_utf8
+except ImportError:
+    from log_safe import open_utf8
 import secrets
 from ui_helpers import show_toast
 

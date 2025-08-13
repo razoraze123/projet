@@ -1,7 +1,11 @@
 import json
 from pathlib import Path
 from typing import List, Dict
-from log_safe import open_utf8
+
+try:
+    from localapp.log_safe import open_utf8
+except ImportError:
+    from log_safe import open_utf8
 
 # Path to the JSON file storing profiles. By default it is located at the
 # project root but can be overridden in tests by changing this variable.

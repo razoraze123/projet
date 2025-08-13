@@ -1,9 +1,19 @@
-from utf8_bootstrap import force_utf8_stdio
+# --- Bootstrap UTF-8, compatible run module ET run direct ---
+try:
+    from .utf8_bootstrap import force_utf8_stdio
+except ImportError:
+    # ex: si lancé par chemin direct (pas en module)
+    from utf8_bootstrap import force_utf8_stdio
 force_utf8_stdio()
+
+# Logs robustes (print_safe)
+try:
+    from .log_safe import print_safe, open_utf8
+except ImportError:
+    from log_safe import print_safe, open_utf8
 
 from pathlib import Path
 import sys
-from log_safe import print_safe, open_utf8
 
 # Allow running this module directly by ensuring the project root is in
 # ``sys.path``.  When executed with ``python localapp/app.py`` the Python
