@@ -17,10 +17,34 @@ class ThemeManager(QObject):
         self.apply(self._theme)
 
     def _ensure_font(self):
+        """
+        Charge la police Inter depuis le qrc seulement si la ressource existe
+        ET a une taille cohérente. En cas d'échec, on ignore silencieusement
+        pour éviter le spam 'qt.qpa.fonts' (DirectWrite).
+        """
         try:
-            QFontDatabase.addApplicationFont(":/fonts/Inter-Regular.ttf")
+            f = QFile(":/fonts/Inter-Regular.ttf")
+            if not f.exists():
+                return
+            if not f.open(QIODevice.ReadOnly):
+                return
+            data = f.readAll()
+            f.close()
+
+            # sanity checks: taille & signatures TTF/OTF
+            if data.size() < 2048:
+                return
+            head = bytes(data[:4])
+            if head not in (b"\x00\x01\x00\x00", b"OTTO"):  # TTF or OTF(CFF)
+                return
+
+            fid = QFontDatabase.addApplicationFont(":/fonts/Inter-Regular.ttf")
+            if fid == -1:
+                # si la police n'est pas acceptée, on n'insiste pas
+                return
         except Exception:
-            pass
+            # Ne jamais bloquer le démarrage sur la police
+            return
 
     def _load_qss(self, path: str) -> str:
         """

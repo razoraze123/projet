@@ -1,3 +1,9 @@
+# --- Boot Qt silencieux (avant imports PySide6) ---
+import os
+os.environ.setdefault("QT_LOGGING_RULES", "qt.qpa.fonts=false;qt.qpa.*=false")
+# Si nécessaire pour diagnostiquer (désactive DirectWrite) :
+# os.environ.setdefault("QT_NO_DIRECTWRITE", "1")
+
 # --- Bootstrap UTF-8, compatible run module ET run direct ---
 try:
     from .utf8_bootstrap import force_utf8_stdio
