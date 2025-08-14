@@ -35,6 +35,7 @@ try:
         QLabel,
         QSizePolicy,
         QScrollArea,
+        QFrame,
     )
     from PySide6.QtCore import Qt, QPropertyAnimation, Slot, QEasingCurve
     from PySide6.QtGui import QIcon, QKeySequence, QShortcut
@@ -202,6 +203,7 @@ class MainWindow(QMainWindow):
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
+        scroll.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         scroll_content = QWidget()
         nav_layout = QVBoxLayout(scroll_content)
         nav_layout.setContentsMargins(0, 0, 0, 0)
@@ -275,15 +277,23 @@ class MainWindow(QMainWindow):
         self.scrap_section.toggle_button.clicked.connect(
             lambda: self._collapse_other(self.scrap_section)
         )
-        self.settings_btn = SidebarButton("Paramètres", get_icon("parametres"))
-        self.settings_btn.clicked.connect(
-            lambda _, b=self.settings_btn: self.show_settings(b)
-        )
-        nav_layout.addWidget(self.settings_btn)
-        self.button_group.append(self.settings_btn)
         nav_layout.addStretch()
 
         sidebar_layout.addWidget(scroll)
+        sidebar_layout.addStretch(1)
+
+        line = QFrame()
+        line.setFrameShape(QFrame.Shape.HLine)
+        line.setStyleSheet("margin:6px 0;")
+        sidebar_layout.addWidget(line)
+
+        self.settings_btn = SidebarButton("Paramètres", get_icon("parametres"))
+        self.settings_btn.setStyleSheet("padding:8px 10px; border-radius:10px;")
+        self.settings_btn.clicked.connect(
+            lambda _, b=self.settings_btn: self.show_settings(b)
+        )
+        self.button_group.append(self.settings_btn)
+        sidebar_layout.addWidget(self.settings_btn)
         self.stack = AnimatedStack()
         self.stack.addWidget(
             QLabel("Bienvenue sur COMPTA", alignment=Qt.AlignCenter)
