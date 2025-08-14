@@ -63,6 +63,6 @@ def test_scrape_variants_generate_urls(monkeypatch):
     driver = DummyDriver('https://competitor.com/products/bob-avec-lacet')
     mapping = scrape_variants(driver)
     assert mapping == {
-        'Camel': 'https://www.planetebob.fr/wp-content/uploads/2025/07/bob-avec-lacet-camel.jpg',
-        'Noir': 'https://www.planetebob.fr/wp-content/uploads/2025/07/bob-avec-lacet-noir.jpg',
+        'Camel': 'https://www.planetebob.fr/wp-content/uploads/2025/07/bob-avec-lacet-camel.webp',
+        'Noir': 'https://www.planetebob.fr/wp-content/uploads/2025/07/bob-avec-lacet-noir.webp',
     }

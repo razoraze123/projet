@@ -4,6 +4,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable, List, Set
 from urllib.parse import urljoin, urlparse, unquote
+from io import BytesIO
 import unicodedata
 
 from datetime import datetime
@@ -22,6 +23,11 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.remote.webelement import WebElement
 
+try:
+    from PIL import Image  # pillow
+except Exception:
+    Image = None
+
 DEFAULT_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -30,14 +36,31 @@ DEFAULT_USER_AGENT = (
 
 UPLOADS_BASE_URL = "https://www.planetebob.fr/wp-content/uploads/"
 
+# --- Configuration sortie images ---
+# Feature flag : forcer la sauvegarde en .webp
+FORCE_WEBP: bool = bool(int(os.getenv("SCRAPER_FORCE_WEBP", "1")))
+WEBP_QUALITY: int = int(os.getenv("SCRAPER_WEBP_QUALITY", "90"))   # 80–92 conseillé e-commerce
+WEBP_LOSSLESS: bool = bool(int(os.getenv("SCRAPER_WEBP_LOSSLESS", "0")))
+WEBP_METHOD: int = int(os.getenv("SCRAPER_WEBP_METHOD", "6"))      # 0..6 (6 = compression plus poussée)
+
 
 def build_uploads_url(
-    product_slug: str, variant_slug: str, *, year=None, month=None
+    product_slug: str,
+    variant_slug: str,
+    *,
+    year=None,
+    month=None,
+    ext: str | None = None,
 ) -> str:
     if year is None or month is None:
         now = datetime.now()
         year, month = now.year, now.month
-    return f"{UPLOADS_BASE_URL}{year}/{month:02d}/{product_slug}-{variant_slug}.jpg"
+    # Détermine l'extension par défaut selon le feature flag, sans casser les appels existants.
+    if ext is None:
+        ext = ".webp" if FORCE_WEBP else ".jpg"
+    if not ext.startswith("."):
+        ext = "." + ext
+    return f"{UPLOADS_BASE_URL}{year}/{month:02d}/{product_slug}-{variant_slug}{ext}"
 
 
 def _create_driver(user_agent: str = DEFAULT_USER_AGENT) -> ChromeDriver:
@@ -410,19 +433,65 @@ def _download(url: str, folder: Path) -> None:
         print_safe(f"\u274c Erreur lors du téléchargement de {url}: {exc}")
         return
 
-    # Enregistrement avec gestion de collision de nom
-    name = os.path.basename(url.split("?")[0]) or "image"
-    stem, ext = os.path.splitext(name)
-    stem = re.sub(r"-\d+$", "", stem)
-    name = f"{stem}{ext}"
-    path = folder / name
-    base, ext = os.path.splitext(path)
+    # --- Normalisation du nom et de l'extension ---
+    orig_name = os.path.basename(url.split("?")[0]) or "image"
+    stem, orig_ext = os.path.splitext(orig_name)
+    stem = re.sub(r"-\d+$", "", stem)  # nettoie suffixes type "-409"
+
+    # Choix de l'extension cible
+    target_ext = ".webp" if FORCE_WEBP else (orig_ext or ".jpg")
+    path = folder / f"{stem}{target_ext}"
+    base, _ = os.path.splitext(path)
     idx = 1
     while path.exists():
-        path = Path(f"{base}_{idx}{ext}")
+        path = Path(f"{base}_{idx}{target_ext}")
         idx += 1
-    with open(path, "wb") as f:
-        f.write(resp.content)
+
+    # Récupération du Content-Type pour fallback intelligent
+    content_type = resp.headers.get("Content-Type", "").lower()
+
+    if FORCE_WEBP:
+        if Image is None:
+            print_safe("⚠️ Pillow non installé : conversion WEBP impossible, écriture brute à l’extension source.")
+            # fallback : on écrit le flux tel quel avec l’extension d’origine si dispo, sinon .jpg
+            raw_ext = orig_ext if orig_ext else ".jpg"
+            raw_path = folder / f"{stem}{raw_ext}"
+            raw_base, _ = os.path.splitext(raw_path)
+            i = 1
+            while raw_path.exists():
+                raw_path = Path(f"{raw_base}_{i}{raw_ext}")
+                i += 1
+            with open(raw_path, "wb") as f:
+                f.write(resp.content)
+            return
+
+        try:
+            im = Image.open(BytesIO(resp.content))
+            # Normalise le mode couleur pour éviter les erreurs d’enregistrement
+            if im.mode in ("P", "LA"):
+                im = im.convert("RGBA")
+            elif im.mode not in ("RGB", "RGBA"):
+                im = im.convert("RGB")
+
+            save_kwargs = {"format": "WEBP", "method": WEBP_METHOD}
+            if WEBP_LOSSLESS:
+                save_kwargs.update(lossless=True, quality=100)
+            else:
+                save_kwargs.update(quality=WEBP_QUALITY)
+            im.save(path, **save_kwargs)
+        except Exception as e:
+            # Fallback: si la source était déjà webp ou que Pillow échoue, écrit brut
+            if "image/webp" in content_type or (orig_ext.lower() == ".webp"):
+                with open(path, "wb") as f:
+                    f.write(resp.content)
+            else:
+                print_safe(f"❌ Erreur conversion WEBP pour {url}: {e}")
+                # ne pas lever d’exception dure : on log et on continue le lot
+                return
+    else:
+        # Mode legacy : écrit tel quel
+        with open(path, "wb") as f:
+            f.write(resp.content)
 
 
 def _folder_from_url(url: str) -> Path:
