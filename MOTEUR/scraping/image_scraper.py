@@ -1,11 +1,16 @@
 import os
 import re
 import time
+import itertools
+import math
+import json
 from pathlib import Path
 from typing import Any, Callable, List, Set
 from urllib.parse import urljoin, urlparse, unquote
 from io import BytesIO
 import unicodedata
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import suppress
 
 from datetime import datetime
 
@@ -15,6 +20,8 @@ except ImportError:
     from log_safe import print_safe
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.webdriver import WebDriver as ChromeDriver
@@ -24,7 +31,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.remote.webelement import WebElement
 
 try:
-    from PIL import Image  # pillow
+    from PIL import Image  # pour conversion WEBP (déjà utilisée)
 except Exception:
     Image = None
 
@@ -34,15 +41,133 @@ DEFAULT_USER_AGENT = (
     "Chrome/124.0.0.0 Safari/537.36"
 )
 
+# -------------------- Performance & comportement (env overrides) --------------------
+STATIC_SCRAPE_FIRST = bool(int(os.getenv("STATIC_SCRAPE_FIRST", "1")))   # tenter requests+BS4 avant Selenium
+REQUEST_TIMEOUT     = float(os.getenv("REQUEST_TIMEOUT", "6"))           # sec
+REQUEST_RETRIES     = int(os.getenv("REQUEST_RETRIES", "2"))
+DOWNLOAD_MAX_WORKERS= int(os.getenv("DOWNLOAD_MAX_WORKERS", "6"))        # parallélisme téléchargement
+MAX_IMAGES_PER_PRODUCT = int(os.getenv("MAX_IMAGES_PER_PRODUCT", "6"))   # limite utile (1 principale + up to 5)
+
+SCROLL_STEP_PX      = int(os.getenv("SCROLL_STEP_PX", "1000"))
+SCROLL_PAUSE        = float(os.getenv("SCROLL_PAUSE", "0.10"))           # sec
+SCROLL_MAX_SEC      = float(os.getenv("SCROLL_MAX_SEC", "8"))            # stop hard après X s
+SLIDER_CLICK_DELAY  = float(os.getenv("SLIDER_CLICK_DELAY", "0.20"))     # sec
+
+# Conversion WEBP (déjà ajoutée précédemment)
+FORCE_WEBP: bool = bool(int(os.getenv("SCRAPER_FORCE_WEBP", "1")))
+WEBP_QUALITY: int = int(os.getenv("SCRAPER_WEBP_QUALITY", "90"))
+WEBP_LOSSLESS: bool = bool(int(os.getenv("SCRAPER_WEBP_LOSSLESS", "0")))
+WEBP_METHOD: int = int(os.getenv("SCRAPER_WEBP_METHOD", "4"))         # 4 pour alléger le CPU
+
 UPLOADS_BASE_URL = "https://www.planetebob.fr/wp-content/uploads/"
 
-# --- Configuration sortie images ---
-# Feature flag : forcer la sauvegarde en .webp
-FORCE_WEBP: bool = bool(int(os.getenv("SCRAPER_FORCE_WEBP", "1")))
-WEBP_QUALITY: int = int(os.getenv("SCRAPER_WEBP_QUALITY", "90"))   # 80–92 conseillé e-commerce
-WEBP_LOSSLESS: bool = bool(int(os.getenv("SCRAPER_WEBP_LOSSLESS", "0")))
-WEBP_METHOD: int = int(os.getenv("SCRAPER_WEBP_METHOD", "6"))      # 0..6 (6 = compression plus poussée)
 
+def _make_http_session() -> requests.Session:
+    s = requests.Session()
+    retries = Retry(
+        total=REQUEST_RETRIES,
+        backoff_factor=0.4,
+        status_forcelist=(429, 500, 502, 503, 504),
+        allowed_methods=["GET", "HEAD"],
+    )
+    adapter = HTTPAdapter(max_retries=retries, pool_connections=20, pool_maxsize=20)
+    s.mount("http://", adapter)
+    s.mount("https://", adapter)
+    s.headers.update({"User-Agent": DEFAULT_USER_AGENT})
+    return s
+
+
+_DROP_PATTERNS = (
+    "-150x150", "-300x300", "-600x600",  # tailles WP courantes
+    "thumbnail", "thumb", "mini", "small",
+)
+
+
+def _is_useful_image_url(u: str) -> bool:
+    if not u:
+        return False
+    lu = u.lower()
+    if any(p in lu for p in _DROP_PATTERNS):
+        return False
+    if lu.startswith("data:") or lu.endswith(".svg"):
+        return False
+    return True
+
+
+def _collect_images_static(url: str, selector: str | None, session: requests.Session) -> list[str]:
+    """Retourne une liste d'URLs d'images en mode statique (sans JS).
+    Si selector est donné, on l'applique; sinon heuristique pour WooCommerce."""
+    try:
+        r = session.get(url, timeout=REQUEST_TIMEOUT)
+        r.raise_for_status()
+    except Exception:
+        return []
+    html = r.text
+    with suppress(Exception):
+        from bs4 import BeautifulSoup
+
+        soup = BeautifulSoup(html, "html.parser")
+        nodes = []
+        if selector:
+            nodes = soup.select(selector)
+        else:
+            nodes = soup.select(
+                ".woocommerce-product-gallery__image a, .product__media a, a[href$='.jpg'], a[href$='.webp'], img[src]"
+            )
+        urls = []
+        for n in nodes:
+            href = n.get("href") or n.get("src") or ""
+            if href and _is_useful_image_url(href):
+                urls.append(href)
+        return list(dict.fromkeys(urls))
+    return []
+
+
+def _scroll_quick(driver):
+    import time as _time
+
+    start = _time.perf_counter()
+    last_h = 0
+    while True:
+        driver.execute_script(f"window.scrollBy(0, {SCROLL_STEP_PX});")
+        _time.sleep(SCROLL_PAUSE)
+        h = driver.execute_script("return document.body.scrollHeight")
+        if h == last_h:
+            break
+        last_h = h
+        if _time.perf_counter() - start > SCROLL_MAX_SEC:
+            break
+
+
+def _try_slider_clicks(driver, dots_selector: str):
+    import time as _time
+
+    with suppress(Exception):
+        dots = driver.find_elements("css selector", dots_selector)
+        for d in dots[:8]:
+            with suppress(Exception):
+                d.click()
+                _time.sleep(SLIDER_CLICK_DELAY)
+
+
+def _collect_images_selenium(driver, url: str, selector: str | None) -> list[str]:
+    driver.get(url)
+    _scroll_quick(driver)
+    if selector:
+        nodes = driver.find_elements("css selector", selector)
+    else:
+        nodes = driver.find_elements(
+            "css selector", ".woocommerce-product-gallery__image a, .product__media a, img"
+        )
+    urls = []
+    for el in nodes:
+        href = ""
+        with suppress(Exception):
+            href = el.get_attribute("href") or el.get_attribute("src") or ""
+        if href and _is_useful_image_url(href):
+            urls.append(href)
+    _try_slider_clicks(driver, ".flickity-page-dots .dot")
+    return list(dict.fromkeys(urls))
 
 def build_uploads_url(
     product_slug: str,
@@ -409,13 +534,14 @@ def _extract_urls(driver: ChromeDriver, selector: str) -> List[str]:
     return list(urls)
 
 
-def _download(url: str, folder: Path) -> None:
+def _download(url: str, folder: Path, session: requests.Session | None = None) -> None:
     if url.startswith("data:image"):
         print_safe(f"\u26A0\uFE0F Ignoré (image base64) : {url[:50]}...")
         return
 
     try:
-        resp = requests.get(url, timeout=10)
+        s = session or _make_http_session()
+        resp = s.get(url, timeout=REQUEST_TIMEOUT)
         resp.raise_for_status()
 
         # Vérifie que la réponse est bien une image
@@ -494,6 +620,15 @@ def _download(url: str, folder: Path) -> None:
             f.write(resp.content)
 
 
+def download_many(urls: list[str], folder: Path, session: requests.Session | None = None):
+    if not urls:
+        return
+    folder.mkdir(parents=True, exist_ok=True)
+    with ThreadPoolExecutor(max_workers=DOWNLOAD_MAX_WORKERS) as ex:
+        futures = [ex.submit(_download, u, folder, session) for u in urls]
+        for _ in as_completed(futures):
+            pass
+
 def _folder_from_url(url: str) -> Path:
     """Return a folder name derived from ``url``.
 
@@ -509,51 +644,26 @@ def _folder_from_url(url: str) -> Path:
     return Path(name or "images")
 
 
-def scrape_images(
-    page_url: str,
-    selector: str,
-    folder: str | Path = "images",
-    *,
-    keep_driver: bool = False,
-) -> int | tuple[int, ChromeDriver]:
-    """Download images from ``page_url`` into a subfolder of ``folder``.
-
-    The subfolder name is derived from the URL's last path segment. When
-    ``keep_driver`` is ``True``, the Selenium driver is returned alongside the
-    image count and left open for further processing by the caller.
-    """
-    print_safe("Chargement...")
-    driver = _create_driver()
+def scrape_images(urls: list[str], selector: str | None, folder: Path) -> None:
+    session = _make_http_session()
+    driver = None
     try:
-        driver.get(page_url)
-        WebDriverWait(driver, 15).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, selector))
-        )
-        _simulate_slider_interaction(driver)
-        _scroll_page(driver)
-        urls = _extract_urls(driver, selector)
-        total = len(urls)
-        if total == 0:
-            print_safe(
-                "⚠️ Aucune image trouvée. Vérifie si le slider charge bien dynamiquement."
-            )
-        else:
-            print_safe(f"{total} images trouv\u00e9es")
+        for url in urls:
+            images: list[str] = []
+            if STATIC_SCRAPE_FIRST:
+                images = _collect_images_static(url, selector, session)
+            if not images:
+                if driver is None:
+                    driver = _create_driver()
+                images = _collect_images_selenium(driver, url, selector)
+            images = [u for u in images if _is_useful_image_url(u)]
+            images = list(dict.fromkeys(images))[:MAX_IMAGES_PER_PRODUCT]
+            dest = Path(folder) / _folder_from_url(url)
+            download_many(images, dest, session=session)
     finally:
-        if not keep_driver:
-            driver.quit()
-
-    base_dir = Path(folder)
-    images_dir = base_dir / _folder_from_url(page_url)
-    images_dir.mkdir(parents=True, exist_ok=True)
-    for i, url in enumerate(urls, 1):
-        print_safe(f"T\u00e9l\u00e9chargement de l'image n\u00b0{i}/{total}")
-        _download(url, images_dir)
-    print_safe("\u2705 Termin\u00e9")
-
-    if keep_driver:
-        return total, driver
-    return total
+        if driver is not None:
+            with suppress(Exception):
+                driver.quit()
 
 
 def scrape_variants(driver: ChromeDriver) -> dict[str, str]:

@@ -1,11 +1,11 @@
 from pathlib import Path
 import sys
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from MOTEUR.scraping.image_scraper import _download
-import types
 
 
 class DummyResponse:
@@ -22,12 +22,17 @@ class DummyResponse:
         pass
 
 
-def test_download_name_cleanup(tmp_path, monkeypatch):
-    def fake_get(url, timeout=10):
+class DummySession:
+    def get(self, url, timeout):
         return DummyResponse()
 
+
+def test_download_name_cleanup(tmp_path, monkeypatch):
     monkeypatch.setenv("SCRAPER_FORCE_WEBP", "1")
-    monkeypatch.setattr("MOTEUR.scraping.image_scraper.requests.get", fake_get)
+    monkeypatch.setattr(
+        "MOTEUR.scraping.image_scraper._make_http_session",
+        lambda: DummySession(),
+    )
 
     url1 = "http://example.com/bob-avec-lacet-409.jpg"
     url2 = "http://example.com/bob-avec-lacet-1023.jpg"
