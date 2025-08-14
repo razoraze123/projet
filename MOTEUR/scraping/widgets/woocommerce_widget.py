@@ -23,6 +23,12 @@ from pathlib import Path
 from datetime import datetime
 from urllib.parse import urljoin
 import requests
+import os
+
+try:
+    from MOTEUR.scraping.config import IMAGES_JOINER  # type: ignore
+except Exception:
+    IMAGES_JOINER = os.getenv("IMAGES_JOINER", ";")
 
 
 class WooCommerceProductWidget(QWidget):
@@ -241,7 +247,7 @@ class WooCommerceProductWidget(QWidget):
             item = self.table.item(row, img_col)
             if not item:
                 continue
-            urls.extend(u.strip() for u in item.text().split(", ") if u.strip())
+            urls.extend(u.strip() for u in item.text().split(IMAGES_JOINER) if u.strip())
 
         results: list[tuple[str, str]] = []
         for url in urls:
@@ -289,6 +295,7 @@ class WooCommerceProductWidget(QWidget):
         sku_col = self.HEADERS.index("SKU")
         name_col = self.HEADERS.index("Name")
         img_col = self.HEADERS.index("Images")
+        regular_price_col = self.HEADERS.index("Regular price")
         published_col = self.HEADERS.index("Published")
         instock_col = self.HEADERS.index("In stock?")
         stock_col = self.HEADERS.index("Stock")
@@ -323,8 +330,19 @@ class WooCommerceProductWidget(QWidget):
                     if p.suffix.lower() in {".webp", ".jpg", ".jpeg", ".png"}:
                         local_images.append(p.name)
 
+            display_name = product_name or product_slug.replace("-", " ").strip()
+
+            def _pick_variant_file(var_name: str, *, local_images: list[str], product_slug: str) -> str:
+                var_slug = self._slugify(var_name)
+                for ext in (".webp", ".jpg", ".jpeg", ".png"):
+                    candidate = f"{product_slug}-{var_slug}{ext}"
+                    if candidate in local_images:
+                        return candidate
+                return f"{product_slug}-{var_slug}.webp"
+
             variant_files = [
-                f"{product_slug}-{self._slugify(v)}.jpg" for v in variants
+                _pick_variant_file(v, local_images=local_images, product_slug=product_slug)
+                for v in variants
             ]
             generic_images = [img for img in local_images if img not in variant_files]
 
@@ -339,25 +357,52 @@ class WooCommerceProductWidget(QWidget):
                 parent_sku = _gen_sku()
                 self.table.setItem(row, type_col, QTableWidgetItem("variable"))
                 self.table.setItem(row, sku_col, QTableWidgetItem(parent_sku))
-                self.table.setItem(row, name_col, QTableWidgetItem(product_name))
+                self.table.setItem(row, name_col, QTableWidgetItem(display_name))
                 self.table.setItem(row, published_col, QTableWidgetItem("1"))
                 self.table.setItem(row, instock_col, QTableWidgetItem("1"))
                 self.table.setItem(row, stock_col, QTableWidgetItem("999"))
                 self.table.setItem(row, tax_status_col, QTableWidgetItem("taxable"))
-                self.table.setItem(row, attr_name_col, QTableWidgetItem("Couleur"))
+                if attr_name_col is not None and attr_value_col is not None:
+                    item = self.table.item(row, attr_name_col)
+                    if not item or not item.text():
+                        self.table.setItem(row, attr_name_col, QTableWidgetItem("Couleur"))
+                    item = self.table.item(row, attr_value_col)
+                    if not item or not item.text():
+                        if variants:
+                            self.table.setItem(
+                                row,
+                                attr_value_col,
+                                QTableWidgetItem(", ".join(variants)),
+                            )
                 self.table.setItem(row, attr_visible_col, QTableWidgetItem("1"))
                 self.table.setItem(row, attr_global_col, QTableWidgetItem("1"))
-                parent_images = [base + img for img in generic_images + variant_files]
+
+                urls: list[str] = []
+                generic_name = None
+                for ext in (".webp", ".jpg", ".jpeg", ".png"):
+                    candidate = f"{product_slug}{ext}"
+                    if candidate in generic_images:
+                        generic_name = candidate
+                        break
+                if generic_name:
+                    urls.append(base + generic_name)
+                for file_name in variant_files:
+                    urls.append(base + file_name)
+                seen: set[str] = set()
+                urls_dedup: list[str] = []
+                for u in urls:
+                    if u not in seen:
+                        urls_dedup.append(u)
+                        seen.add(u)
                 if self.clean_images_checkbox.isChecked():
-                    parent_images = self._clean_image_urls(parent_images)
-                if parent_images:
-                    self.table.setItem(
-                        row,
-                        img_col,
-                        QTableWidgetItem(", ".join(parent_images)),
-                    )
+                    urls_dedup = self._clean_image_urls(urls_dedup)
+                if urls_dedup:
+                    parent_images_cell = IMAGES_JOINER.join(urls_dedup)
+                    self.table.setItem(row, img_col, QTableWidgetItem(parent_images_cell))
 
                 current_row = row
+                parent_regular_item = self.table.item(row, regular_price_col)
+                parent_regular = parent_regular_item.text() if parent_regular_item else ""
                 for variant in variants:
                     current_row += 1
                     self.table.insertRow(current_row)
@@ -367,7 +412,7 @@ class WooCommerceProductWidget(QWidget):
                     var_slug = self._slugify(variant)
                     sku_var = f"{parent_sku}-{var_slug}"
                     used_skus.add(sku_var)
-                    name_var = f"{product_name} {variant}"
+                    name_var = f"{display_name} {variant}".strip()
                     self.table.setItem(current_row, sku_col, QTableWidgetItem(sku_var))
                     self.table.setItem(current_row, name_col, QTableWidgetItem(name_var))
                     self.table.setItem(current_row, published_col, QTableWidgetItem("1"))
@@ -378,8 +423,19 @@ class WooCommerceProductWidget(QWidget):
                     self.table.setItem(current_row, attr_value_col, QTableWidgetItem(variant))
                     self.table.setItem(current_row, attr_visible_col, QTableWidgetItem("1"))
                     self.table.setItem(current_row, attr_global_col, QTableWidgetItem("1"))
-                    var_img = base + f"{product_slug}-{var_slug}.jpg"
-                    self.table.setItem(current_row, img_col, QTableWidgetItem(var_img))
+                    file_name = _pick_variant_file(
+                        variant, local_images=local_images, product_slug=product_slug
+                    )
+                    self.table.setItem(
+                        current_row, img_col, QTableWidgetItem(base + file_name)
+                    )
+                    var_price_item = self.table.item(current_row, regular_price_col)
+                    if (not var_price_item or not var_price_item.text()) and parent_regular:
+                        self.table.setItem(
+                            current_row,
+                            regular_price_col,
+                            QTableWidgetItem(parent_regular),
+                        )
             else:
                 row = self.table.rowCount()
                 self.table.insertRow(row)
@@ -389,7 +445,7 @@ class WooCommerceProductWidget(QWidget):
                 sku_val = _gen_sku()
                 self.table.setItem(row, type_col, QTableWidgetItem("simple"))
                 self.table.setItem(row, sku_col, QTableWidgetItem(sku_val))
-                self.table.setItem(row, name_col, QTableWidgetItem(product_name))
+                self.table.setItem(row, name_col, QTableWidgetItem(display_name))
                 self.table.setItem(row, published_col, QTableWidgetItem("1"))
                 self.table.setItem(row, instock_col, QTableWidgetItem("1"))
                 self.table.setItem(row, stock_col, QTableWidgetItem("999"))
@@ -401,7 +457,7 @@ class WooCommerceProductWidget(QWidget):
                     self.table.setItem(
                         row,
                         img_col,
-                        QTableWidgetItem(", ".join(images)),
+                        QTableWidgetItem(IMAGES_JOINER.join(images)),
                     )
 
 
