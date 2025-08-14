@@ -32,7 +32,6 @@ try:
         QHBoxLayout,
         QPushButton,
         QLabel,
-        QStackedWidget,
         QSizePolicy,
         QFrame,
         QScrollArea,
@@ -51,8 +50,11 @@ from MOTEUR.compta.accounting.widget import AccountWidget
 from MOTEUR.scraping.widgets.profile_widget import ProfileWidget
 from MOTEUR.compta.dashboard.widget import DashboardWidget
 from MOTEUR.ui.settings_widget import SettingsWidget
-from MOTEUR.ui.theme import load_theme, apply_theme
 from gallery_widget import GalleryWidget
+
+from localapp.ui_theme import ThemeManager
+from localapp.ui_icons import qicon
+from localapp.ui_animations import AnimatedStack, toast
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -180,8 +182,9 @@ class CollapsibleSection(QWidget):
 class MainWindow(QMainWindow):
     """Main application window with a sidebar and central stack."""
 
-    def __init__(self) -> None:
+    def __init__(self, theme: ThemeManager | None = None) -> None:
         super().__init__()
+        self.theme = theme
         self.setWindowTitle("COMPTA - Interface de gestion comptable")
         self.setMinimumSize(1200, 700)
 
@@ -214,14 +217,14 @@ class MainWindow(QMainWindow):
             "\ud83d\udcc1 Comptabilit\u00e9", hide_title_when_collapsed=False
         )
         compta_icons = {
-            "Tableau de bord": BASE_DIR / "icons" / "dashboard.svg",
+            "Tableau de bord": ":/icons/layout-dashboard.svg",
             "Journal": BASE_DIR / "icons" / "journal.svg",
             "Grand Livre": BASE_DIR / "icons" / "grand_livre.svg",
             "Bilan": BASE_DIR / "icons" / "bilan.svg",
             "Résultat": BASE_DIR / "icons" / "resultat.svg",
             "Comptes": BASE_DIR / "icons" / "journal.svg",
             "Révision": BASE_DIR / "icons" / "bilan.svg",
-            "Paramètres": BASE_DIR / "icons" / "settings.svg",
+            "Paramètres": ":/icons/settings.svg",
             "Achat": BASE_DIR / "icons" / "achat.svg",
             "Fournisseurs": BASE_DIR / "icons" / "achat.svg",
             "Ventes": BASE_DIR / "icons" / "ventes.svg",
@@ -286,17 +289,14 @@ class MainWindow(QMainWindow):
         self.scrap_section.add_widget(self.profiles_btn)
         self.button_group.append(self.profiles_btn)
 
-        self.scrap_btn = SidebarButton(
-            "Scrap",
-            icon_path=str(BASE_DIR / "icons" / "scraping.svg"),
-        )
+        self.scrap_btn = SidebarButton("Scrap", icon_path=":/icons/scan.svg")
         self.scrap_btn.clicked.connect(
             lambda _, b=self.scrap_btn: self.show_scrap_page(b)
         )
         self.scrap_section.add_widget(self.scrap_btn)
         self.button_group.append(self.scrap_btn)
 
-        self.gallery_btn = SidebarButton("Galerie")
+        self.gallery_btn = SidebarButton("Galerie", icon_path=":/icons/image.svg")
         self.gallery_btn.clicked.connect(lambda _, b=self.gallery_btn: self.show_gallery_tab())
         self.scrap_section.add_widget(self.gallery_btn)
         self.button_group.append(self.gallery_btn)
@@ -313,7 +313,7 @@ class MainWindow(QMainWindow):
 
         self.scrap_settings_btn = SidebarButton(
             "Paramètres Scraping",
-            icon_path=str(BASE_DIR / "icons" / "settings.svg"),
+            icon_path=":/icons/settings.svg",
         )
         self.scrap_settings_btn.clicked.connect(
             lambda _, b=self.scrap_settings_btn: self.show_scraping_settings_page(b)
@@ -341,13 +341,23 @@ class MainWindow(QMainWindow):
 
         self.settings_btn = SidebarButton(
             "\u2699\ufe0f Paramètres",
-            icon_path=str(BASE_DIR / "icons" / "settings.svg"),
+            icon_path=":/icons/settings.svg",
         )
         self.settings_btn.clicked.connect(self.show_settings)
         sidebar_layout.addWidget(self.settings_btn)
         self.button_group.append(self.settings_btn)
 
-        self.stack = QStackedWidget()
+        if self.theme:
+            self.theme_btn = SidebarButton(
+                "",
+                icon_path=f":/icons/{'moon' if self.theme.current=='dark' else 'sun'}.svg",
+            )
+            self.theme_btn.clicked.connect(self.theme.toggle)
+            sidebar_layout.addWidget(self.theme_btn)
+            self.button_group.append(self.theme_btn)
+            self.theme.theme_changed.connect(self._on_theme_changed)
+
+        self.stack = AnimatedStack()
         self.stack.addWidget(
             QLabel("Bienvenue sur COMPTA", alignment=Qt.AlignCenter)
         )
@@ -548,6 +558,11 @@ class MainWindow(QMainWindow):
         self.settings_btn.setChecked(True)
         self.stack.setCurrentWidget(self.settings_page)
 
+    def _on_theme_changed(self, name: str) -> None:
+        if hasattr(self, "theme_btn"):
+            self.theme_btn.setIcon(qicon("moon" if name == "dark" else "sun"))
+        toast(self, f"Thème {name}")
+
 
 
 if __name__ == "__main__":
@@ -561,7 +576,11 @@ if __name__ == "__main__":
         pass
 
     app = QApplication(sys.argv)
-    apply_theme(load_theme())
-    interface = MainWindow()
+    try:
+        import localapp.resources_rc  # noqa: F401
+    except Exception:
+        pass
+    theme = ThemeManager(app)
+    interface = MainWindow(theme)
     interface.show()
     sys.exit(app.exec())
