@@ -1,0 +1,19 @@
+<RCC>
+  <qresource prefix="/">
+    <file>icons/image.svg</file>
+    <file>icons/scan.svg</file>
+    <file>icons/download.svg</file>
+    <file>icons/settings.svg</file>
+    <file>icons/moon.svg</file>
+    <file>icons/sun.svg</file>
+    <file>icons/info.svg</file>
+    <file>icons/check.svg</file>
+    <file>icons/x.svg</file>
+    <file>icons/server.svg</file>
+    <file>icons/link-2.svg</file>
+    <file>icons/layout-dashboard.svg</file>
+    <file>themes/dark.qss</file>
+    <file>themes/light.qss</file>
+    <file>fonts/Inter-Regular.ttf</file>
+  </qresource>
+</RCC>

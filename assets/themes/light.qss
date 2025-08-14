@@ -1,0 +1,17 @@
+* { font-family: "Inter", "Segoe UI", Arial; }
+QWidget { background:#f7f8fb; color:#0e1726; }
+QPushButton { background:#ffffff; color:#0e1726; border:1px solid #e2e6ef; padding:7px 12px; border-radius:10px; }
+QPushButton:hover { background:#f1f3f9; }
+QLineEdit, QPlainTextEdit, QComboBox, QSpinBox, QTextEdit {
+  background:#ffffff; color:#0e1726; border:1px solid #e2e6ef; border-radius:8px; padding:6px 8px;
+}
+QTabBar::tab { background:transparent; padding:8px 14px; margin:0 4px; border-radius:10px; }
+QTabBar::tab:selected { background:#ffffff; border:1px solid #e2e6ef; }
+QTabWidget::pane { border-top:1px solid #e2e6ef; }
+QHeaderView::section { background:#ffffff; color:#223; border:1px solid #e2e6ef; padding:6px 8px; }
+QTableView { gridline-color:#e2e6ef; selection-background-color:#e5efff; }
+QProgressBar { background:#ffffff; border:1px solid #e2e6ef; border-radius:8px; text-align:center; }
+QProgressBar::chunk { background:#2463eb; border-radius:8px; }
+QScrollBar:vertical { background:#f7f8fb; width:12px; margin:0; }
+QScrollBar::handle:vertical { background:#dbe3f3; border-radius:6px; min-height:24px; }
+QScrollBar::handle:vertical:hover { background:#cbd7f0; }
