@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
-from PySide6.QtCore import QObject, Signal, QFile, QTextStream, QSettings
+from pathlib import Path
+from PySide6.QtCore import QObject, Signal, QFile, QIODevice, QSettings
 from PySide6.QtGui import QFontDatabase, QPalette, QColor
 
 
@@ -22,12 +23,31 @@ class ThemeManager(QObject):
             pass
 
     def _load_qss(self, path: str) -> str:
+        """
+        Charge un fichier QSS en UTF-8.
+        - Tente d'abord la ressource Qt (ex: :/themes/dark.qss)
+        - Si absente, fallback vers un fichier sur disque: <dir>/themes/<name>.qss
+        """
+        # 1) Essai via ressource Qt
         f = QFile(path)
-        if not f.open(QFile.OpenModeFlag.ReadOnly | QFile.OpenModeFlag.Text):
-            return ""
-        s = QTextStream(f)
-        s.setCodec("UTF-8")
-        return s.readAll()
+        if f.exists():
+            if not f.open(QIODevice.ReadOnly | QIODevice.Text):
+                return ""
+            try:
+                # Qt6: plus de setCodec; on lit les octets et on décode nous-mêmes
+                data = f.readAll()              # QByteArray
+                qss = bytes(data).decode("utf-8", errors="replace")
+                return qss
+            finally:
+                f.close()
+
+        # 2) Fallback fichier local (même nom que la ressource)
+        name = Path(path).name  # ex: 'dark.qss' ou 'light.qss'
+        local = Path(__file__).resolve().parent / "themes" / name
+        if local.exists():
+            return local.read_text(encoding="utf-8", errors="replace")
+
+        return ""
 
     def apply(self, theme: str):
         qss = self._load_qss(f":/themes/{'dark' if theme=='dark' else 'light'}.qss")
