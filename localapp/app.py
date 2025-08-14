@@ -23,6 +23,7 @@ import sys
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
+SETTINGS_FILE = PROJECT_ROOT / "settings.json"
 try:
     from PySide6.QtWidgets import (
         QApplication,
@@ -33,9 +34,7 @@ try:
         QPushButton,
         QLabel,
         QSizePolicy,
-        QFrame,
         QScrollArea,
-        QCheckBox,
     )
     from PySide6.QtCore import Qt, QPropertyAnimation, Slot, QEasingCurve
     from PySide6.QtGui import QIcon, QKeySequence, QShortcut
@@ -49,13 +48,13 @@ from MOTEUR.compta.ventes.widget import VenteWidget
 from MOTEUR.compta.accounting.widget import AccountWidget
 from MOTEUR.scraping.widgets.profile_widget import ProfileWidget
 from MOTEUR.compta.dashboard.widget import DashboardWidget
-from MOTEUR.ui.settings_widget import SettingsWidget
 from gallery_widget import GalleryWidget
 
 from localapp.ui_theme import ThemeManager
 from localapp.ui_icons import get_icon
-from localapp.ui_animations import AnimatedStack, toast
-from localapp.utils_copytxt import regenerate_copy_txt
+from localapp.ui_animations import AnimatedStack
+from localapp.pages.settings_page import SettingsPage
+import json
 
 
 class SidebarButton(QPushButton):
@@ -184,6 +183,9 @@ class MainWindow(QMainWindow):
     def __init__(self, theme: ThemeManager | None = None) -> None:
         super().__init__()
         self.theme = theme
+        self.settings = self._load_settings()
+        if self.theme:
+            self.theme.apply(self.settings.get("theme", "dark"))
         self.setWindowTitle("COMPTA - Interface de gestion comptable")
         self.setMinimumSize(1200, 700)
 
@@ -273,37 +275,15 @@ class MainWindow(QMainWindow):
         self.scrap_section.toggle_button.clicked.connect(
             lambda: self._collapse_other(self.scrap_section)
         )
-
+        self.settings_btn = SidebarButton("Paramètres", get_icon("parametres"))
+        self.settings_btn.clicked.connect(
+            lambda _, b=self.settings_btn: self.show_settings(b)
+        )
+        nav_layout.addWidget(self.settings_btn)
+        self.button_group.append(self.settings_btn)
         nav_layout.addStretch()
 
         sidebar_layout.addWidget(scroll)
-
-        line = QFrame()
-        line.setFrameShape(QFrame.HLine)
-        line.setStyleSheet("margin:5px 0;")
-        sidebar_layout.addWidget(line)
-
-
-        foot = QWidget()
-        foot_layout = QHBoxLayout(foot)
-        foot_layout.setContentsMargins(0, 0, 0, 0)
-        self.settings_btn = QPushButton()
-        self.settings_btn.setIcon(get_icon("parametres"))
-        self.settings_btn.clicked.connect(self.show_settings)
-        foot_layout.addWidget(self.settings_btn)
-        if self.theme:
-            self.theme_toggle = QCheckBox()
-            self.theme_toggle.setChecked(self.theme.current == "dark")
-            self.theme_toggle.toggled.connect(
-                lambda checked: self.theme.apply("dark" if checked else "light")
-            )
-            foot_layout.addWidget(self.theme_toggle)
-            self.theme_label = QLabel()
-            foot_layout.addWidget(self.theme_label)
-            self._update_theme_label(self.theme.current)
-            self.theme.theme_changed.connect(self._on_theme_changed)
-        foot_layout.addStretch()
-        sidebar_layout.addWidget(foot)
         self.stack = AnimatedStack()
         self.stack.addWidget(
             QLabel("Bienvenue sur COMPTA", alignment=Qt.AlignCenter)
@@ -367,12 +347,9 @@ class MainWindow(QMainWindow):
         self.ventes_page = VenteWidget()
         self.stack.addWidget(self.ventes_page)
 
-        self.settings_page = SettingsWidget()
+        self.app_ctx = AppContext(self)
+        self.settings_page = SettingsPage(self.app_ctx, self)
         self.stack.addWidget(self.settings_page)
-        self.copy_txt_path = r"C:\\Users\\Lamine\\Desktop\\scrap\\projet\\copy.txt"
-        self.settings_page.btn_update_txt.clicked.connect(
-            lambda: self._on_update_txt_clicked()
-        )
 
         main_layout.addWidget(sidebar_container, 1)
         main_layout.addWidget(self.stack, 4)
@@ -405,7 +382,7 @@ class MainWindow(QMainWindow):
         if hasattr(self, "show_flask_tab"):
             add("Ctrl+4", self.show_flask_tab)
         if hasattr(self, "show_settings"):
-            add("Ctrl+5", self.show_settings)
+            add("Ctrl+5", lambda: self.show_settings(self.settings_btn))
 
         target = getattr(self, "scrap_page", None)
         if target and hasattr(target, "start_scan"):
@@ -488,30 +465,44 @@ class MainWindow(QMainWindow):
         if btn:
             self.display_content(f"Comptabilité : {name}", btn)
 
-    def show_settings(self) -> None:
+    def show_settings(self, button: SidebarButton) -> None:
         self.clear_selection()
+        button.setChecked(True)
         self.stack.setCurrentWidget(self.settings_page)
 
-    def _update_theme_label(self, theme: str) -> None:
-        if hasattr(self, "theme_label"):
-            self.theme_label.setText(
-                "Mode sombre" if theme == "dark" else "Mode clair"
-            )
-
-    def _on_theme_changed(self, name: str) -> None:
-        if hasattr(self, "theme_toggle"):
-            block = self.theme_toggle.blockSignals(True)
-            self.theme_toggle.setChecked(name == "dark")
-            self.theme_toggle.blockSignals(block)
-        self._update_theme_label(name)
-        toast(self, f"Thème {name}")
-
-    def _on_update_txt_clicked(self) -> None:
+    def _load_settings(self) -> dict:
         try:
-            msg = regenerate_copy_txt(self.copy_txt_path)
-            print(msg)
+            return json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+
+    def save_settings(self) -> None:
+        try:
+            SETTINGS_FILE.write_text(
+                json.dumps(self.settings, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
         except Exception as e:
-            print(f"Erreur régénération copy.txt: {e}")
+            print_safe(f"Could not save settings: {e}")
+
+
+class AppContext:
+    def __init__(self, mw: MainWindow):
+        self.mw = mw
+        self.root_dir = PROJECT_ROOT
+        self.copy_txt_path = str(self.root_dir / "copy.txt")
+
+    def apply_theme(self, theme: str):
+        if self.mw.theme:
+            self.mw.theme.apply(theme)
+        self.mw.settings["theme"] = theme
+        self.mw.save_settings()
+
+    def current_theme(self) -> str:
+        return self.mw.settings.get("theme", "dark")
+
+    def log(self, msg: str):
+        print_safe(msg)
 
 
 
