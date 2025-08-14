@@ -72,8 +72,18 @@ class SettingsPage(QWidget):
         # Signals
         self.btn_update_app.clicked.connect(self._on_update_app)
         self.btn_restart.clicked.connect(self._on_restart)
-        self.btn_update_txt.clicked.disconnect() if hasattr(self.btn_update_txt, "clicked") else None
-        self.btn_update_txt.clicked.connect(self._on_update_copy_txt)
+
+        # Connexion idempotente au slot _on_update_copy_txt
+        try:
+            self.btn_update_txt.clicked.disconnect(self._on_update_copy_txt)
+        except TypeError:
+            # Aucune connexion existante : on ignore
+            pass
+
+        self.btn_update_txt.clicked.connect(
+            self._on_update_copy_txt,
+            Qt.ConnectionType.UniqueConnection
+        )
         self.chk_dark.stateChanged.connect(self._on_theme_toggled)
 
     # ==== Actions ====
