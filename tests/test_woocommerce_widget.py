@@ -13,7 +13,10 @@ if str(PROJECT_ROOT) not in sys.path:
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from MOTEUR.scraping.widgets.woocommerce_widget import WooCommerceProductWidget
+from MOTEUR.scraping.widgets.woocommerce_widget import (
+    WooCommerceProductWidget,
+    IMAGES_JOINER,
+)
 from MOTEUR.scraping.widgets.scrap_widget import ScrapWidget
 from MOTEUR.scraping.widgets.storage_widget import StorageWidget
 
@@ -62,7 +65,7 @@ def test_fill_from_storage(tmp_path, monkeypatch):
     parent_sku = widget.table.item(0, sku_col).text()
     assert widget.table.item(0, name_col).text() == "bob"
     assert widget.table.item(0, type_col).text() == "variable"
-    images0 = set(widget.table.item(0, img_col).text().split(', '))
+    images0 = set(widget.table.item(0, img_col).text().split(IMAGES_JOINER))
     assert images0 == {
         "https://www.planetebob.fr/wp-content/uploads/2025/07/bob.jpg",
         "https://www.planetebob.fr/wp-content/uploads/2025/07/bob-noir.jpg",
@@ -83,7 +86,7 @@ def test_fill_from_storage(tmp_path, monkeypatch):
     )
 
     assert widget.table.item(3, type_col).text() == "simple"
-    images3 = set(widget.table.item(3, img_col).text().split(', '))
+    images3 = set(widget.table.item(3, img_col).text().split(IMAGES_JOINER))
     assert images3 == {
         "https://www.planetebob.fr/wp-content/uploads/2025/07/chapeau.jpg",
         "https://www.planetebob.fr/wp-content/uploads/2025/07/chapeau-unique.jpg",
@@ -134,7 +137,7 @@ def test_clean_image_urls_option(tmp_path, monkeypatch):
     widget.upload_subdir_edit.setText("2025/07")
     widget.fill_from_storage()
     img_col = widget.HEADERS.index("Images")
-    images = widget.table.item(0, img_col).text().split(", ")
+    images = widget.table.item(0, img_col).text().split(IMAGES_JOINER)
     assert images == [
         "https://www.planetebob.fr/wp-content/uploads/2025/07/bob.jpg",
         "https://www.planetebob.fr/wp-content/uploads/2025/07/bob-unique.jpg",
@@ -147,7 +150,7 @@ def test_clean_image_urls_option(tmp_path, monkeypatch):
     widget2.auto_upload_subdir_checkbox.setChecked(False)
     widget2.upload_subdir_edit.setText("2025/07")
     widget2.fill_from_storage()
-    images2 = widget2.table.item(0, img_col).text().split(", ")
+    images2 = widget2.table.item(0, img_col).text().split(IMAGES_JOINER)
     assert images2 == [
         "https://www.planetebob.fr/wp-content/uploads/2025/07/bob.jpg",
         "https://www.planetebob.fr/wp-content/uploads/2025/07/bob_1.jpg",
