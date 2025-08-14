@@ -753,48 +753,52 @@ def _folder_from_url(url: str) -> Path:
 
 
 def scrape_images(
-    urls: list[str],
+    url: str,
     selector: str | None,
     folder: Path,
     *,
     keep_driver: bool = False,
     **_unused,
-) -> None:
-    """Scrape les images pour N URLs.
-    - keep_driver=True  => réutilise un driver global entre appels (cache)
-    - keep_driver=False => crée/ferme un driver si Selenium est nécessaire
+) -> int | tuple[int, ChromeDriver]:
+    """Scrape les images pour une URL et retourne le nombre téléchargé.
+
+    - ``keep_driver=True``  => réutilise un driver global entre appels (cache) et le
+      retourne avec le total téléchargé.
+    - ``keep_driver=False`` => crée/ferme un driver si Selenium est nécessaire et
+      retourne uniquement le total.
     """
+
     session = _make_http_session()
     driver = None
+    total = 0
     try:
         if keep_driver:
             driver = _GLOBAL_DRIVER  # peut rester None tant qu'on n'a pas besoin de Selenium
-        # assainir la liste d'entrée (et filtrer le vide)
-        norm_urls = []
-        for u in urls or []:
-            nu = _normalize_url(u) or u  # garde au moins la version brute pour logs
-            if nu:
-                norm_urls.append(nu)
-        for url in norm_urls:
-            images: list[str] = []
-            if STATIC_SCRAPE_FIRST:
-                images = _collect_images_static(url, selector, session)
-            if not images:
-                if driver is None:
-                    driver = _get_cached_driver() if keep_driver else _create_driver()
-                images = _collect_images_selenium(driver, url, selector)
-            clean = []
-            for u in images:
-                nu = _normalize_url(u) if not u.startswith("//") else "https:" + _clean_str(u)
-                if nu and _is_useful_image_url(nu):
-                    clean.append(nu)
-            images = list(dict.fromkeys(clean))[:MAX_IMAGES_PER_PRODUCT]
-            dest = Path(folder) / _folder_from_url(url)
-            download_many(images, dest, session=session)
+
+        url = _normalize_url(url) or url
+        images: list[str] = []
+        if STATIC_SCRAPE_FIRST:
+            images = _collect_images_static(url, selector, session)
+        if not images:
+            if driver is None:
+                driver = _get_cached_driver() if keep_driver else _create_driver()
+            images = _collect_images_selenium(driver, url, selector)
+
+        clean = []
+        for u in images:
+            nu = _normalize_url(u) if not u.startswith("//") else "https:" + _clean_str(u)
+            if nu and _is_useful_image_url(nu):
+                clean.append(nu)
+        images = list(dict.fromkeys(clean))[:MAX_IMAGES_PER_PRODUCT]
+        total = len(images)
+        dest = Path(folder) / _folder_from_url(url)
+        download_many(images, dest, session=session)
     finally:
         if driver is not None and not keep_driver:
             with suppress(Exception):
                 driver.quit()
+
+    return (total, driver) if keep_driver else total
 
 
 def scrape_variants(driver: ChromeDriver) -> dict[str, str]:
