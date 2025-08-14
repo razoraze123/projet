@@ -1,64 +1,45 @@
----
-openapi: 3.0.0
+openapi: 3.1.0
 info:
-  title: Lamine Product Bridge API
-  version: "1.0.0"
-  description: API bridge for Lamine product scraping and image operations.
+  title: Lamine Product Bridge
+  version: "1.0"
 servers:
-  - url: http://localhost:5001
+  - url: https://YOUR_PUBLIC_DOMAIN
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-KEY
+security:
+  - ApiKeyAuth: []
 paths:
-  /health:
+  /products:
     get:
-      summary: Health check
+      operationId: listProducts
+      summary: Liste les produits (dossiers sous images_root)
       responses:
-        '200':
-          description: Service is healthy
-  /scrape:
-    post:
-      summary: Start scraping job
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                url:
-                  type: string
-                selector:
-                  type: string
-              required:
-                - url
-      responses:
-        '200':
-          description: Job started
-  /jobs/{job_id}:
+        "200": { description: OK }
+  /products/{slug}/images:
     get:
-      summary: Get job status
+      operationId: getProductImages
+      summary: URLs publiques des images d’un produit
       parameters:
         - in: path
-          name: job_id
+          name: slug
           required: true
-          schema:
-            type: string
+          schema: { type: string }
       responses:
-        '200':
-          description: Job information
-  /profiles:
-    get:
-      summary: List profiles
-      responses:
-        '200':
-          description: Profiles listed
-  /history:
-    get:
-      summary: List scrape history
-      responses:
-        '200':
-          description: History listed
-  /actions/image-edit:
+        "200": { description: OK }
+        "404": { description: Not found }
+  /products/{slug}/descriptions:
     post:
-      summary: Edit image
+      operationId: saveProductDescription
+      summary: Sauvegarde CSV/JSON de la fiche produit
+      parameters:
+        - in: path
+          name: slug
+          required: true
+          schema: { type: string }
       requestBody:
         required: true
         content:
@@ -66,12 +47,18 @@ paths:
             schema:
               type: object
               properties:
-                source:
-                  type: object
-                operations:
-                  type: array
-                  items:
-                    type: object
+                name: { type: string }
+                short_description: { type: string }
+                description: { type: string }
+                categories: { type: array, items: { type: string } }
+                tags: { type: array, items: { type: string } }
+                regular_price: { type: string }
+                sale_price: { type: string }
+                slug: { type: string }
+                focus_keyword: { type: string }
+                meta_title: { type: string }
+                meta_description: { type: string }
+                internal_link: { type: string }
       responses:
-        '200':
-          description: Image edit job started
+        "200": { description: OK }
+        "401": { description: Unauthorized }
