@@ -4,13 +4,14 @@ import time
 import itertools
 import math
 import json
+import atexit
+from contextlib import suppress
 from pathlib import Path
 from typing import Any, Callable, List, Set
 from urllib.parse import urljoin, urlparse, unquote
 from io import BytesIO
 import unicodedata
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from contextlib import suppress
 
 from datetime import datetime
 
@@ -58,6 +59,27 @@ FORCE_WEBP: bool = bool(int(os.getenv("SCRAPER_FORCE_WEBP", "1")))
 WEBP_QUALITY: int = int(os.getenv("SCRAPER_WEBP_QUALITY", "90"))
 WEBP_LOSSLESS: bool = bool(int(os.getenv("SCRAPER_WEBP_LOSSLESS", "0")))
 WEBP_METHOD: int = int(os.getenv("SCRAPER_WEBP_METHOD", "4"))         # 4 pour alléger le CPU
+
+# -------------------- Cache driver global (compat keep_driver) --------------------
+_GLOBAL_DRIVER = None
+
+
+def _get_cached_driver():
+    global _GLOBAL_DRIVER
+    if _GLOBAL_DRIVER is None:
+        _GLOBAL_DRIVER = _create_driver()
+    return _GLOBAL_DRIVER
+
+
+def _release_cached_driver():
+    global _GLOBAL_DRIVER
+    if _GLOBAL_DRIVER is not None:
+        with suppress(Exception):
+            _GLOBAL_DRIVER.quit()
+    _GLOBAL_DRIVER = None
+
+
+atexit.register(_release_cached_driver)
 
 UPLOADS_BASE_URL = "https://www.planetebob.fr/wp-content/uploads/"
 
@@ -644,24 +666,37 @@ def _folder_from_url(url: str) -> Path:
     return Path(name or "images")
 
 
-def scrape_images(urls: list[str], selector: str | None, folder: Path) -> None:
+def scrape_images(
+    urls: list[str],
+    selector: str | None,
+    folder: Path,
+    *,
+    keep_driver: bool = False,
+    **_unused,
+) -> None:
+    """Scrape les images pour N URLs.
+    - keep_driver=True  => réutilise un driver global entre appels (cache)
+    - keep_driver=False => crée/ferme un driver si Selenium est nécessaire
+    """
     session = _make_http_session()
     driver = None
     try:
+        if keep_driver:
+            driver = _GLOBAL_DRIVER  # peut rester None tant qu'on n'a pas besoin de Selenium
         for url in urls:
             images: list[str] = []
             if STATIC_SCRAPE_FIRST:
                 images = _collect_images_static(url, selector, session)
             if not images:
                 if driver is None:
-                    driver = _create_driver()
+                    driver = _get_cached_driver() if keep_driver else _create_driver()
                 images = _collect_images_selenium(driver, url, selector)
             images = [u for u in images if _is_useful_image_url(u)]
             images = list(dict.fromkeys(images))[:MAX_IMAGES_PER_PRODUCT]
             dest = Path(folder) / _folder_from_url(url)
             download_many(images, dest, session=session)
     finally:
-        if driver is not None:
+        if driver is not None and not keep_driver:
             with suppress(Exception):
                 driver.quit()
 
