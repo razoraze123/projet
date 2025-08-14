@@ -121,8 +121,11 @@ class CollapsibleSection(QWidget):
         self.content_area = QWidget()
         self.content_area.setMaximumHeight(0)
         self.content_area.setSizePolicy(
-            QSizePolicy.Expanding,
-            QSizePolicy.Fixed,
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Minimum,
+        )
+        self.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum
         )
 
         self.toggle_animation = QPropertyAnimation(
@@ -203,8 +206,12 @@ class MainWindow(QMainWindow):
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
         scroll.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         scroll_content = QWidget()
+        scroll_content.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum
+        )
         nav_layout = QVBoxLayout(scroll_content)
         nav_layout.setContentsMargins(0, 0, 0, 0)
         nav_layout.setSpacing(0)
@@ -279,8 +286,7 @@ class MainWindow(QMainWindow):
         )
         nav_layout.addStretch()
 
-        sidebar_layout.addWidget(scroll)
-        sidebar_layout.addStretch(1)
+        sidebar_layout.addWidget(scroll, 1)
 
         line = QFrame()
         line.setFrameShape(QFrame.Shape.HLine)
