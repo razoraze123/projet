@@ -9,6 +9,7 @@ from contextlib import suppress
 from pathlib import Path
 from typing import Any, Callable, List, Set
 from urllib.parse import urljoin, urlparse, unquote
+from urllib.parse import urlunparse, quote
 from io import BytesIO
 import unicodedata
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -81,6 +82,76 @@ def _release_cached_driver():
 
 atexit.register(_release_cached_driver)
 
+# -------------------- URL utils (normalisation/validation) --------------------
+_DISALLOWED_SCHEMES = ("blob", "javascript", "mailto", "tel", "about", "chrome")
+
+def _clean_str(s: str) -> str:
+    # retire CR/LF et espaces parasites
+    return (s or "").strip().replace("\r", "").replace("\n", "")
+
+def _is_http_like(u: str) -> bool:
+    pu = urlparse(u)
+    return pu.scheme in ("http", "https")
+
+def _is_disallowed(u: str) -> bool:
+    pu = urlparse(u)
+    if pu.scheme in _DISALLOWED_SCHEMES:
+        return True
+    # évite les ancres pures et vides
+    if not pu.scheme and not pu.netloc and pu.path.startswith("#"):
+        return True
+    return False
+
+def _requote(u: str) -> str:
+    """Encodage sûr des caractères spéciaux dans path/query/fragment."""
+    pu = urlparse(u)
+    # encode path et query proprement (préserve schéma/host)
+    path = quote(pu.path or "", safe="/:@&=+$,;~*'()!-._")
+    query = quote(pu.query or "", safe="=&?:/+!$,;'@()*[]")
+    frag  = quote(pu.fragment or "", safe="=&?:/+!$,;'@()*[]")
+    return urlunparse((pu.scheme, pu.netloc, path, pu.params, query, frag))
+
+def _normalize_url(u: str, *, default_scheme: str = "https") -> str | None:
+    """Retourne une URL http(s) propre ou None si impossible."""
+    if not isinstance(u, str):
+        return None
+    u = _clean_str(u)
+    if not u:
+        return None
+    if _is_disallowed(u):
+        return None
+    pu = urlparse(u)
+    # si schéma manquant, préfixe par défaut (https://)
+    if not pu.scheme:
+        u = f"{default_scheme}://{u}"
+        pu = urlparse(u)
+    # si toujours pas http(s) -> rejet
+    if pu.scheme not in ("http", "https"):
+        return None
+    # encodage sûr
+    return _requote(u)
+
+def driver_get_safe(driver, url: str) -> bool:
+    """Tente driver.get(url) avec normalisation + retry; False si échec."""
+    try_urls = []
+    u1 = _normalize_url(url)
+    if u1:
+        try_urls.append(u1)
+    # deuxième tentative: forcer https si la 1ère échoue et qu'on n'a pas déjà https
+    if u1 and not u1.startswith("https://"):
+        try_urls.append("https://" + _clean_str(url).lstrip("/"))
+    elif not u1:
+        try_urls.append("https://" + _clean_str(url).lstrip("/"))
+    for u in try_urls:
+        try:
+            driver.get(u)
+            return True
+        except Exception as e:
+            # log allégé; on tente la suivante
+            print_safe(f"⚠️ driver.get retry failed for {repr(u)} → {e}")
+            continue
+    return False
+
 UPLOADS_BASE_URL = "https://www.planetebob.fr/wp-content/uploads/"
 
 
@@ -108,10 +179,15 @@ _DROP_PATTERNS = (
 def _is_useful_image_url(u: str) -> bool:
     if not u:
         return False
-    lu = u.lower()
+    lu = _clean_str(u).lower()
     if any(p in lu for p in _DROP_PATTERNS):
         return False
     if lu.startswith("data:") or lu.endswith(".svg"):
+        return False
+    # évite schémas non http(s)
+    if _is_disallowed(lu):
+        return False
+    if not _is_http_like(lu) and not lu.startswith("//"):
         return False
     return True
 
@@ -120,7 +196,10 @@ def _collect_images_static(url: str, selector: str | None, session: requests.Ses
     """Retourne une liste d'URLs d'images en mode statique (sans JS).
     Si selector est donné, on l'applique; sinon heuristique pour WooCommerce."""
     try:
-        r = session.get(url, timeout=REQUEST_TIMEOUT)
+        norm = _normalize_url(url)
+        if not norm:
+            return []
+        r = session.get(norm, timeout=REQUEST_TIMEOUT)
         r.raise_for_status()
     except Exception:
         return []
@@ -139,8 +218,10 @@ def _collect_images_static(url: str, selector: str | None, session: requests.Ses
         urls = []
         for n in nodes:
             href = n.get("href") or n.get("src") or ""
-            if href and _is_useful_image_url(href):
-                urls.append(href)
+            if href:
+                href_norm = _normalize_url(href) if not href.startswith("//") else "https:" + href
+                if href_norm and _is_useful_image_url(href_norm):
+                    urls.append(href_norm)
         return list(dict.fromkeys(urls))
     return []
 
@@ -173,7 +254,10 @@ def _try_slider_clicks(driver, dots_selector: str):
 
 
 def _collect_images_selenium(driver, url: str, selector: str | None) -> list[str]:
-    driver.get(url)
+    ok = driver_get_safe(driver, url)
+    if not ok:
+        print_safe(f"⛔️ Navigation ignorée (URL invalide): {repr(url)}")
+        return []
     _scroll_quick(driver)
     if selector:
         nodes = driver.find_elements("css selector", selector)
@@ -186,8 +270,10 @@ def _collect_images_selenium(driver, url: str, selector: str | None) -> list[str
         href = ""
         with suppress(Exception):
             href = el.get_attribute("href") or el.get_attribute("src") or ""
-        if href and _is_useful_image_url(href):
-            urls.append(href)
+        if href:
+            href_norm = _normalize_url(href) if not href.startswith("//") else "https:" + href
+            if href_norm and _is_useful_image_url(href_norm):
+                urls.append(href_norm)
     _try_slider_clicks(driver, ".flickity-page-dots .dot")
     return list(dict.fromkeys(urls))
 
@@ -683,7 +769,13 @@ def scrape_images(
     try:
         if keep_driver:
             driver = _GLOBAL_DRIVER  # peut rester None tant qu'on n'a pas besoin de Selenium
-        for url in urls:
+        # assainir la liste d'entrée (et filtrer le vide)
+        norm_urls = []
+        for u in urls or []:
+            nu = _normalize_url(u) or u  # garde au moins la version brute pour logs
+            if nu:
+                norm_urls.append(nu)
+        for url in norm_urls:
             images: list[str] = []
             if STATIC_SCRAPE_FIRST:
                 images = _collect_images_static(url, selector, session)
@@ -691,8 +783,12 @@ def scrape_images(
                 if driver is None:
                     driver = _get_cached_driver() if keep_driver else _create_driver()
                 images = _collect_images_selenium(driver, url, selector)
-            images = [u for u in images if _is_useful_image_url(u)]
-            images = list(dict.fromkeys(images))[:MAX_IMAGES_PER_PRODUCT]
+            clean = []
+            for u in images:
+                nu = _normalize_url(u) if not u.startswith("//") else "https:" + _clean_str(u)
+                if nu and _is_useful_image_url(nu):
+                    clean.append(nu)
+            images = list(dict.fromkeys(clean))[:MAX_IMAGES_PER_PRODUCT]
             dest = Path(folder) / _folder_from_url(url)
             download_many(images, dest, session=session)
     finally:
