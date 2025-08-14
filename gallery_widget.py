@@ -1,7 +1,7 @@
-import io
 import traceback
 import requests
 from typing import List
+from urllib.parse import quote
 from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QPixmap, QDesktopServices
 from PySide6.QtWidgets import (
@@ -70,7 +70,7 @@ class GalleryWidget(QWidget):
     def _headers(self):
         h = {}
         if self.api_key:
-            h["X-API-Key"] = self.api_key
+            h["X-API-KEY"] = self.api_key
         return h
 
     def _api_get(self, path, params=None):
@@ -93,28 +93,38 @@ class GalleryWidget(QWidget):
         show_toast(self, "Ouverture dossier côté OS non disponible.", error=True)
 
     def on_list_clicked(self):
-        target = self.input_edit.text().strip()
-        if not target:
-            show_toast(self, "Veuillez saisir un alias ou un chemin.", error=True)
+        """
+        Appelle /files/list avec 'folder' (alias OU chemin absolu),
+        consomme 'urls' du backend et affiche les vignettes à partir de ces URLs.
+        """
+        target = (
+            self.input_edit.text().strip()
+            if hasattr(self, "input_edit")
+            else "images_root"
+        )
+        r = self._api_get("/files/list", params={"folder": target})
+        if r is None:
             return
-        with busy_dialog(self, "Récupération de la liste de fichiers…"):
-            try:
-                r = self._api_get("/files/list", params={"alias": target})
-                if r is None or r.status_code != 200:
-                    r = self._api_get("/files/list", params={"path": target})
-                    if r is None:
-                        return
-                data = r.json()
-                files = data.get("files", []) if isinstance(data, dict) else data
-                self._files = files[: self.limit_spin.value()]
-                self._render_grid()
-                self.status_lbl.setText(f"{len(self._files)} fichiers affichés (sur {len(files)}).")
-                self.open_dir_btn.setEnabled(True)
-            except Exception as ex:
-                traceback.print_exc()
-                show_toast(self, f"Échec de la liste: {ex}", error=True)
+        r.raise_for_status()
+        data = r.json()
 
-    def _render_grid(self):
+        self._raw_folder = data.get("folder", target)
+        files = data.get("files", [])
+        urls = data.get("urls", [])
+
+        # Mémoriser la liste structurée pour l'UI
+        self._items = []
+        for name, url in zip(files, urls):
+            self._items.append({"name": name, "url": url})
+
+        self._items = self._items[: self.limit_spin.value()]
+        self._render_thumbs(self._items)
+        self.status_lbl.setText(
+            f"{len(self._items)} fichiers affichés (sur {len(files)})."
+        )
+        self.open_dir_btn.setEnabled(True)
+
+    def _render_thumbs(self, items):
         while self.grid.count():
             w = self.grid.takeAt(0).widget()
             if w:
@@ -122,15 +132,28 @@ class GalleryWidget(QWidget):
 
         col_count = 5
         row = col = 0
-        for path in self._files:
-            card = self._make_thumb_card(path)
+        for item in items:
+            card = self._make_thumb_card(item)
             self.grid.addWidget(card, row, col)
             col += 1
             if col >= col_count:
                 col = 0
                 row += 1
 
-    def _make_thumb_card(self, path: str) -> QWidget:
+    def _make_thumb_card(self, item):
+        """
+        item = {"name": "...", "url": "..."}
+        Utilise l'URL directe. En fallback, reconstruit /files/raw?folder=...&name=...
+        """
+        name = item.get("name", "")
+        url = item.get("url") or ""
+        if not url:
+            base = self.base_url.rstrip("/")
+            url = (
+                f"{base}/files/raw?folder={quote(str(getattr(self, '_raw_folder', '')))}"
+                f"&name={quote(name)}"
+            )
+
         w = QWidget(self)
         v = QVBoxLayout(w)
         lbl_img = QLabel(w)
@@ -139,12 +162,14 @@ class GalleryWidget(QWidget):
         lbl_img.setText("Chargement…")
 
         try:
-            rr = self._api_get("/files/raw", params={"path": path})
-            if rr is not None and rr.status_code == 200:
+            rr = requests.get(url, headers=self._headers(), timeout=20)
+            if rr.status_code == 200:
                 pm = QPixmap()
                 pm.loadFromData(rr.content)
                 if not pm.isNull():
-                    pm = pm.scaled(lbl_img.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                    pm = pm.scaled(
+                        lbl_img.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
+                    )
                     lbl_img.setPixmap(pm)
                 else:
                     lbl_img.setText("Non image")
@@ -153,26 +178,27 @@ class GalleryWidget(QWidget):
         except Exception:
             lbl_img.setText("Erreur")
 
-        lbl_name = QLabel(path.split("/")[-1], w)
+        lbl_name = QLabel(name, w)
         btn_view = QPushButton("Aperçu", w)
-        btn_view.clicked.connect(lambda: self._open_preview(path))
+        btn_view.clicked.connect(lambda: self._open_preview(name, url))
 
         v.addWidget(lbl_img)
         v.addWidget(lbl_name)
         v.addWidget(btn_view)
         return w
 
-    def _open_preview(self, path: str):
+    def _open_preview(self, name: str, url: str):
         try:
-            rr = self._api_get("/files/raw", params={"path": path})
-            if rr is None:
+            rr = requests.get(url, headers=self._headers(), timeout=20)
+            if rr.status_code != 200:
+                show_toast(self, "Erreur", error=True)
                 return
             pm = QPixmap()
             pm.loadFromData(rr.content)
             if pm.isNull():
                 show_toast(self, "Fichier non image.", error=True)
                 return
-            dlg = ImagePreviewDialog(self, title=path.split("/")[-1], pixmap=pm)
+            dlg = ImagePreviewDialog(self, title=name, pixmap=pm)
             dlg.exec()
         except Exception as ex:
             show_toast(self, f"Impossible d’ouvrir l’aperçu: {ex}", error=True)

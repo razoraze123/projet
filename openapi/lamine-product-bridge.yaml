@@ -13,6 +13,53 @@ components:
 security:
   - ApiKeyAuth: []
 paths:
+  /files/list:
+    get:
+      operationId: listFiles
+      summary: Liste les fichiers d'un dossier
+      parameters:
+        - in: query
+          name: folder
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  files:
+                    type: array
+                    items: { type: string }
+                  urls:
+                    type: array
+                    items: { type: string }
+                  folder:
+                    type: string
+  /files/raw:
+    get:
+      operationId: getRawFile
+      summary: Récupère un fichier brut
+      parameters:
+        - in: query
+          name: folder
+          required: true
+          schema: { type: string }
+        - in: query
+          name: name
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "404": { description: Not found }
   /products:
     get:
       operationId: listProducts

@@ -1,0 +1,14 @@
+{
+  "port": 5001,
+  "api_key": "dev-key",
+  "expose": false,
+  "ngrok_token": "",
+  "headless": true,
+  "ignore_robots": false,
+  "rate": 0,
+  "max_workers": 1,
+  "path_aliases": {
+    "sample_folder": "",
+    "images_root": "C:\\Users\\Lamine\\Desktop\\scrap\\projet\\images"
+  }
+}
