@@ -294,7 +294,12 @@ class MainWindow(QMainWindow):
         sidebar_layout.addWidget(line)
 
         self.settings_btn = SidebarButton("Paramètres", get_icon("parametres"))
-        self.settings_btn.setStyleSheet("padding:8px 10px; border-radius:10px;")
+        self.settings_btn.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
+        self.settings_btn.setMinimumHeight(34)
+        self.settings_btn.setEnabled(True)
+        self.settings_btn.setObjectName("sidebar-item")
         self.settings_btn.clicked.connect(
             lambda _, b=self.settings_btn: self.show_settings(b)
         )
