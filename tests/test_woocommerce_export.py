@@ -1,5 +1,6 @@
 from pathlib import Path
 import sys
+import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
@@ -188,3 +189,19 @@ def test_decimal_comma_toggle(tmp_path, monkeypatch):
     we.write_woocommerce_csv(rows, path)
     content = path.read_text(encoding="utf-8")
     assert "29.9" in content
+
+
+def test_env_overrides(tmp_path):
+    pytest.importorskip("dotenv")
+    env_path = PROJECT_ROOT / ".env"
+    env_path.write_text("CSV_DELIM=,\nIMAGES_JOINER=,\nDECIMAL_COMMA=0\n", encoding="utf-8")
+    import importlib
+    import woocommerce_export as we
+    importlib.reload(we)
+    try:
+        assert we.CSV_DELIM == ","
+        assert we.IMAGES_JOINER == ","
+        assert we.DECIMAL_COMMA is False
+    finally:
+        env_path.unlink()
+        importlib.reload(we)
