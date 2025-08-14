@@ -477,6 +477,159 @@ class FlaskBridgeServer:
                 }
             )
 
+        globals()["require_api_key"] = require_api_key
+        globals()["ALIASES"] = getattr(self, "path_aliases", {})
+
+        # === [CONFIG / CONSTANTES] ===
+        # Domaine public (ngrok ou prod) pour construire les URLs d'images (/files/raw).
+        BASE_URL = os.environ.get("BASE_URL", "http://127.0.0.1:5000")
+
+        # Racine des images: privilégier un alias existant, sinon chemin absolu fallback.
+        IMAGES_ROOT_ABS = r"C:\Users\Lamine\Desktop\scrap\projet\images"
+        try:
+            if "ALIASES" in globals() and isinstance(ALIASES, dict) and ALIASES.get("images_root"):
+                IMAGES_ROOT_ABS = str(ALIASES["images_root"])
+        except Exception:
+            pass
+
+        EXPORT_DIR = Path("export")
+        EXPORT_DIR.mkdir(parents=True, exist_ok=True)
+        EXPORT_CSV = EXPORT_DIR / "products_export.csv"
+
+        WC_COLUMNS = [
+            "Name","Short description","Description","Categories","Tags",
+            "Regular price","Sale price","Slug","Focus keyword",
+            "Meta title","Meta description","Internal link"
+        ]
+
+        # === [UTILS] ===
+        _slug_rm = re.compile(r"[^\w\s-]", flags=re.UNICODE)
+        def _slugify(s: str) -> str:
+            s = (s or "").strip().lower()
+            s = _slug_rm.sub("", s)
+            s = re.sub(r"[\s_-]+", "-", s, flags=re.UNICODE)
+            return s.strip("-")
+
+        def _images_root() -> Path:
+            return Path(IMAGES_ROOT_ABS).resolve()
+
+        def _is_image(p: Path) -> bool:
+            return p.suffix.lower() in (".png",".jpg",".jpeg",".webp",".avif",".gif")
+
+        def _product_dirs():
+            root = _images_root()
+            if not root.exists():
+                return []
+            return [p for p in root.iterdir() if p.is_dir()]
+
+        def _file_url_for(product_dir: Path, filename: str) -> str:
+            # Sert le fichier via l’endpoint existant /files/raw (folder + name)
+            return f"{BASE_URL}/files/raw?folder={quote(str(product_dir))}&name={quote(filename)}"
+
+        # === [SÉCURITÉ] ===
+        # Réutiliser require_api_key si présent, sinon fallback minimal.
+        if "require_api_key" not in globals():
+            API_KEY = os.environ.get("API_KEY", "dev-key")
+            def require_api_key(fn):
+                from functools import wraps
+                @wraps(fn)
+                def _wrap(*args, **kwargs):
+                    if request.headers.get("X-API-KEY") != API_KEY:
+                        return jsonify({"error":"unauthorized"}), 401
+                    return fn(*args, **kwargs)
+                return _wrap
+
+        # === [ENDPOINTS PRODUITS] ===
+        @app.get("/products")
+        @require_api_key
+        def list_products():
+            """Liste des dossiers (1 dossier = 1 produit)."""
+            items = []
+            for d in sorted(_product_dirs(), key=lambda p: p.name.lower()):
+                cnt = sum(1 for f in d.iterdir() if f.is_file() and _is_image(f))
+                items.append({"slug": _slugify(d.name), "name": d.name, "images_count": cnt})
+            offset = max(int(request.args.get("offset", 0)), 0)
+            limit = int(request.args.get("limit", 25))
+            items = items[offset:offset + limit]
+            return jsonify({"items": items})
+
+        @app.get("/products/<slug>/images")
+        @require_api_key
+        def product_images(slug):
+            """URLs publiques des images d'un produit (via /files/raw)."""
+            target = None
+            for d in _product_dirs():
+                if _slugify(d.name) == slug:
+                    target = d
+                    break
+            if not target:
+                return jsonify({"error": "not_found"}), 404
+
+            images = []
+            for f in sorted(target.iterdir(), key=lambda p: p.name.lower()):
+                if f.is_file() and _is_image(f):
+                    url = _file_url_for(target, f.name)
+                    images.append({"name": f.name, "url": url, "preview_url": url})
+            return jsonify({"product": target.name, "slug": slug, "images": images})
+
+        @app.post("/products/<slug>/descriptions")
+        @require_api_key
+        def save_product_description(slug):
+            """
+            Attendu (application/json):
+            {
+              "name": "...",
+              "short_description": "...",
+              "description": "...",
+              "categories": ["A","B"],
+              "tags": ["x","y"],
+              "regular_price": "29.90",
+              "sale_price": "",
+              "slug": "slug-override|optional",
+              "focus_keyword": "...",
+              "meta_title": "...",
+              "meta_description": "...",
+              "internal_link": "https://..."
+            }
+            """
+            data = request.get_json(force=True) or {}
+
+            row = {
+                "Name": data.get("name",""),
+                "Short description": data.get("short_description",""),
+                "Description": data.get("description",""),
+                "Categories": ", ".join(data.get("categories", []) or []),
+                "Tags": ", ".join(data.get("tags", []) or []),
+                "Regular price": data.get("regular_price",""),
+                "Sale price": data.get("sale_price",""),
+                "Slug": data.get("slug") or _slugify(data.get("name","")),
+                "Focus keyword": data.get("focus_keyword",""),
+                "Meta title": data.get("meta_title",""),
+                "Meta description": data.get("meta_description",""),
+                "Internal link": data.get("internal_link",""),
+            }
+
+            file_exists = EXPORT_CSV.exists()
+            with open(EXPORT_CSV, "a", newline="", encoding="utf-8") as fp:
+                writer = csv.DictWriter(fp, fieldnames=WC_COLUMNS)
+                if not file_exists:
+                    writer.writeheader()
+                writer.writerow(row)
+
+            # Trace JSON par produit (reprise)
+            prod_dir = None
+            for d in _product_dirs():
+                if _slugify(d.name) == slug:
+                    prod_dir = d
+                    break
+            if prod_dir:
+                (prod_dir / "generated.json").write_text(
+                    json.dumps(row, ensure_ascii=False, indent=2),
+                    encoding="utf-8"
+                )
+
+            return jsonify({"status": "ok", "saved_csv": str(EXPORT_CSV)}), 200
+
     # ------------------------------------------------------------------
     # job execution
     def _run_scrape_job(
