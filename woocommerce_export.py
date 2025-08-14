@@ -43,6 +43,12 @@ import unicodedata
 from collections import defaultdict
 from decimal import Decimal
 from typing import Dict, Iterable, List
+from contextlib import suppress
+
+# .env facultatif (global / par projet)
+with suppress(Exception):
+    from dotenv import load_dotenv
+    load_dotenv()
 
 # Columns expected by WooCommerce in the desired order.
 COLUMNS: List[str] = [
@@ -78,14 +84,10 @@ _ADJECTIVE_MAP = {
 }
 
 
-# Configuration constants (can be overridden via environment variables).
+# Defaults (overridable via environment variables)
 CSV_DELIM: str = os.getenv("CSV_DELIM", ";")
 IMAGES_JOINER: str = os.getenv("IMAGES_JOINER", ";")
-DECIMAL_COMMA: bool = os.getenv("DECIMAL_COMMA", "True").lower() in {
-    "1",
-    "true",
-    "yes",
-}
+DECIMAL_COMMA: bool = bool(int(os.getenv("DECIMAL_COMMA", "1")))
 
 
 def _fix_encoding(text: str) -> str:
