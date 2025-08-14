@@ -2,17 +2,27 @@
 from pathlib import Path
 import os, sys
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QPlainTextEdit, QLabel, QCheckBox, QGroupBox
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QPushButton,
+    QPlainTextEdit,
+    QLabel,
+    QCheckBox,
+    QGroupBox,
 )
 from PySide6.QtCore import QProcess, Qt
-from localapp.utils_copytxt import regenerate_copy_txt
+from localapp.utils_collect import detect_project_root, build_copy_txt
+try:
+    from localapp.ui_animations import toast
+except Exception:
+    toast = lambda *a, **k: None
 
 class SettingsPage(QWidget):
     def __init__(self, app_ctx, parent=None):
         """
         app_ctx: objet contenant au moins:
           - root_dir (Path): racine du projet (cwd du git pull)
-          - copy_txt_path (str): chemin du copy.txt
           - apply_theme(theme: str): applique 'dark' ou 'light' à l'app et persiste dans settings.json
           - current_theme() -> str: retourne 'dark' ou 'light'
           - log(msg: str): (optionnel) fonction de log globale
@@ -62,7 +72,8 @@ class SettingsPage(QWidget):
         # Signals
         self.btn_update_app.clicked.connect(self._on_update_app)
         self.btn_restart.clicked.connect(self._on_restart)
-        self.btn_update_txt.clicked.connect(self._on_update_txt)
+        self.btn_update_txt.clicked.disconnect() if hasattr(self.btn_update_txt, "clicked") else None
+        self.btn_update_txt.clicked.connect(self._on_update_copy_txt)
         self.chk_dark.stateChanged.connect(self._on_theme_toggled)
 
     # ==== Actions ====
@@ -100,12 +111,19 @@ class SettingsPage(QWidget):
         # Flush puis relance le process
         self._restart_app()
 
-    def _on_update_txt(self):
+    def _on_update_copy_txt(self):
+        # racine du projet
+        root = detect_project_root(Path(__file__).resolve())
+        out_path = root / "copy.txt"
+        stats = build_copy_txt(root, out_path)
+        # log UI
         try:
-            msg = regenerate_copy_txt(self.app_ctx.copy_txt_path)
-            self._append(msg)
-        except Exception as e:
-            self._append(f"Erreur: {e}")
+            self.console.appendPlainText(
+                f"copy.txt mis à jour: {stats['files']} fichiers, {stats['bytes']} octets → {stats['out']}"
+            )
+        except Exception:
+            pass
+        toast(self, "copy.txt mis à jour", "success")
 
     # ==== Thème ====
     def _update_theme_label(self):
