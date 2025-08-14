@@ -149,16 +149,6 @@ class FlaskBridgeServer:
         image_exts = IMAGE_EXTS
 
         # UTILS -----------------------------------------------------------
-        def _load_products_file(path: Path) -> list[dict]:
-            if path.suffix.lower() == ".json":
-                with path.open("r", encoding="utf-8") as f:
-                    data = json.load(f) or []
-                return data if isinstance(data, list) else []
-            if path.suffix.lower() == ".csv":
-                with path.open("r", encoding="utf-8", newline="") as f:
-                    return list(csv.DictReader(f))
-            raise ValueError("unsupported file type")
-
         # SÉCURITÉ -------------------------------------------------------
         def require_api_key(fn):
             @wraps(fn)
@@ -277,54 +267,6 @@ class FlaskBridgeServer:
                     400,
                 )
             return send_file(str(p), as_attachment=False)
-
-        @app.get("/products")
-        @require_api_key
-        def products() -> Any:
-            raw_path = (request.args.get("path") or "").strip()
-            if not raw_path:
-                return jsonify({"total": 0, "count": 0, "products": []})
-
-            path_str = (
-                self._resolve_folder(raw_path)
-                if hasattr(self, "_resolve_folder")
-                else raw_path
-            )
-            p = Path(path_str)
-            if not p.exists() or not p.is_file():
-                return (
-                    jsonify(
-                        {
-                            "error": "invalid_request",
-                            "detail": f"file not found: {path_str}",
-                        }
-                    ),
-                    400,
-                )
-            try:
-                data = _load_products_file(p)
-            except Exception as e:
-                return (
-                    jsonify(
-                        {"error": "invalid_request", "detail": str(e)}
-                    ),
-                    400,
-                )
-
-            def _to_int(val: str, default: int) -> int:
-                try:
-                    return max(int(val), 0)
-                except Exception:
-                    return default
-
-            offset = _to_int(request.args.get("offset", "0"), 0)
-            limit = _to_int(request.args.get("limit", "0"), 0)
-
-            total = len(data)
-            items = data[offset:]
-            if limit:
-                items = items[:limit]
-            return jsonify({"total": total, "count": len(items), "products": items})
 
         @app.post("/scrape")
         @require_api_key
