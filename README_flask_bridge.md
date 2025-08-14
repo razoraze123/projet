@@ -31,42 +31,20 @@ Les fichiers générés sont attendus aux emplacements suivants :
 - `export/products_export.csv`
 - `generated.json`
 
-## Test de l'API
-Une fois le serveur lancé, l'endpoint `/health` répond sans authentification.
+### Exemples API (tests rapides)
 
 ```bash
-# Vérification basique
-curl http://localhost:5001/health
+# Lister les fichiers d'un alias (images_root)
+curl -H "X-API-KEY: dev-key" "https://YOUR_PUBLIC_DOMAIN/files/list?folder=images_root"
 
-# Liste des fichiers d'un dossier
-curl -H "X-API-KEY: $SCRAPER_API_KEY" \
-     "http://localhost:5001/files/list?folder=sample_folder"
+# Lister les produits (dossiers)
+curl -H "X-API-KEY: dev-key" "https://YOUR_PUBLIC_DOMAIN/products"
 
-# Récupération d'une image
-curl -H "X-API-KEY: $SCRAPER_API_KEY" \
-     "http://localhost:5001/files/raw?folder=sample_folder&name=exemple.jpg" \
-     --output exemple.jpg
+# Images d'un produit (ex: 'bob avec lacet' → slug 'bob-avec-lacet')
+curl -H "X-API-KEY: dev-key" "https://YOUR_PUBLIC_DOMAIN/products/bob-avec-lacet/images"
 
-# Lecture d'une fiche produit sauvegardée
-curl -H "X-API-KEY: $SCRAPER_API_KEY" \
-     "http://localhost:5001/products?path=generated.json"
-# ou pour un export CSV
-# curl -H "X-API-KEY: $SCRAPER_API_KEY" \
-#      "http://localhost:5001/products?path=export/products_export.csv"
-
-# Lancement d'un scraping
-curl -X POST -H "Content-Type: application/json" -H "X-API-KEY: $SCRAPER_API_KEY" \
-     -d '{"url": "https://exemple.com", "selector": "img"}' \
-     http://localhost:5001/scrape
-
-# Vérification d'un job
-curl -H "X-API-KEY: $SCRAPER_API_KEY" http://localhost:5001/jobs/<job_id>
-
-# Traitement d'images
-curl -X POST http://localhost:5001/actions/image-edit \
-     -H "X-API-KEY: $SCRAPER_API_KEY" -H "Content-Type: application/json" \
-     -d '{"source":{"folder":"/path/images"},"operations":[{"op":"resize","width":1024,"height":1024,"keep_ratio":true}]}'
+# Sauvegarder une fiche produit
+curl -X POST -H "Content-Type: application/json" -H "X-API-KEY: dev-key" \
+  -d '{ "name":"Bob avec lacet jaune", "short_description":"...", "description":"...", "categories":["Bobs"], "tags":["lacet","été"], "regular_price":"", "sale_price":"", "slug":"bob-avec-lacet", "focus_keyword":"bob avec lacet jaune", "meta_title":"Bob avec lacet jaune", "meta_description":"", "internal_link":"" }' \
+  "https://YOUR_PUBLIC_DOMAIN/products/bob-avec-lacet/descriptions"
 ```
-
-Les réponses pour les autres endpoints (`/scrape`, `/jobs`, `/profiles`,
-`/history`) nécessitent le header `X-API-KEY`.
