@@ -10,5 +10,8 @@
   "path_aliases": {
     "sample_folder": "",
     "images_root": "C:\\Users\\Lamine\\Desktop\\scrap\\projet\\images"
+  },
+  "aliases": {
+    "images_root": "C:\\Users\\Lamine\\Desktop\\scrap\\projet\\images"
   }
 }
