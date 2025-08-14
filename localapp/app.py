@@ -35,6 +35,7 @@ try:
         QSizePolicy,
         QFrame,
         QScrollArea,
+        QCheckBox,
     )
     from PySide6.QtCore import Qt, QPropertyAnimation, Slot, QEasingCurve
     from PySide6.QtGui import QIcon, QKeySequence, QShortcut
@@ -43,7 +44,6 @@ except ModuleNotFoundError:
     sys.exit(1)
 
 from MOTEUR.scraping.widgets.scrap_widget import ScrapWidget
-from MOTEUR.scraping.widgets.settings_widget import ScrapingSettingsWidget
 from MOTEUR.compta.achats.widget import AchatWidget
 from MOTEUR.compta.ventes.widget import VenteWidget
 from MOTEUR.compta.accounting.widget import AccountWidget
@@ -53,19 +53,18 @@ from MOTEUR.ui.settings_widget import SettingsWidget
 from gallery_widget import GalleryWidget
 
 from localapp.ui_theme import ThemeManager
-from localapp.ui_icons import qicon
+from localapp.ui_icons import get_icon
 from localapp.ui_animations import AnimatedStack, toast
-
-BASE_DIR = Path(__file__).resolve().parent
+from localapp.utils_copytxt import regenerate_copy_txt
 
 
 class SidebarButton(QPushButton):
     """Custom button used in the vertical sidebar."""
 
-    def __init__(self, text: str, icon_path: str | None = None) -> None:
+    def __init__(self, text: str, icon: QIcon | None = None) -> None:
         super().__init__(text)
-        if icon_path:
-            self.setIcon(QIcon(icon_path))
+        if icon:
+            self.setIcon(icon)
         self.setStyleSheet(
             """
             QPushButton {
@@ -213,75 +212,47 @@ class MainWindow(QMainWindow):
         self.button_group: list[SidebarButton] = []
         self.compta_buttons: dict[str, SidebarButton] = {}
 
+
         self.compta_section = CollapsibleSection(
-            "\ud83d\udcc1 Comptabilit\u00e9", hide_title_when_collapsed=False
+            "📁 Comptabilité", hide_title_when_collapsed=False
         )
-        compta_icons = {
-            "Tableau de bord": ":/icons/layout-dashboard.svg",
-            "Journal": BASE_DIR / "icons" / "journal.svg",
-            "Grand Livre": BASE_DIR / "icons" / "grand_livre.svg",
-            "Bilan": BASE_DIR / "icons" / "bilan.svg",
-            "Résultat": BASE_DIR / "icons" / "resultat.svg",
-            "Comptes": BASE_DIR / "icons" / "journal.svg",
-            "Révision": BASE_DIR / "icons" / "bilan.svg",
-            "Paramètres": ":/icons/settings.svg",
-            "Achat": BASE_DIR / "icons" / "achat.svg",
-            "Fournisseurs": BASE_DIR / "icons" / "achat.svg",
-            "Ventes": BASE_DIR / "icons" / "ventes.svg",
-        }
-        for name in compta_icons:
-            btn = SidebarButton(name, icon_path=str(compta_icons[name]))
+        compta_items = [
+            ("Tableau de bord", "dashboard", self.show_dashboard_page),
+            ("Journal", "journal", lambda b: self.display_content("Comptabilité : Journal", b)),
+            (
+                "Grand Livre",
+                "grand_livre",
+                lambda b: self.display_content("Comptabilité : Grand Livre", b),
+            ),
+            ("Bilan", "bilan", lambda b: self.display_content("Comptabilité : Bilan", b)),
+            (
+                "Résultat",
+                "resultat",
+                lambda b: self.display_content("Comptabilité : Résultat", b),
+            ),
+            ("Comptes", "comptes", self.show_accounts_page),
+            ("Révision", "revision", self.show_revision_page),
+            ("Paramètres", "parametres", self.show_journals_page),
+        ]
+        for name, icon_name, handler in compta_items:
+            btn = SidebarButton(name, get_icon(icon_name))
             self.compta_buttons[name] = btn
-            if name == "Tableau de bord":
-                self.dashboard_btn = btn
-                btn.clicked.connect(
-                    lambda _, b=btn: self.show_dashboard_page(b)
-                )
-            elif name == "Achat":
-                self.achat_btn = btn
-                btn.clicked.connect(
-                    lambda _, b=btn: self.show_achat_page(b)
-                )
-            elif name == "Fournisseurs":
-                self.suppliers_btn = btn
-                btn.clicked.connect(
-                    lambda _, b=btn: self.show_suppliers_page(b)
-                )
-            elif name == "Comptes":
-                self.accounts_btn = btn
-                btn.clicked.connect(
-                    lambda _, b=btn: self.show_accounts_page(b)
-                )
-            elif name == "Révision":
-                self.revision_btn = btn
-                btn.clicked.connect(
-                    lambda _, b=btn: self.show_revision_page(b)
-                )
-            elif name == "Paramètres":
-                self.param_journals_btn = btn
-                btn.clicked.connect(
-                    lambda _, b=btn: self.show_journals_page(b)
-                )
-            elif name == "Ventes":
-                self.ventes_btn = btn
-                btn.clicked.connect(
-                    lambda _, b=btn: self.show_ventes_page(b)
-                )
-            else:
-                btn.clicked.connect(
-                    lambda _, n=name, b=btn: self.display_content(
-                        f"Comptabilité : {n}", b
-                    )
-                )
+            btn.clicked.connect(lambda _, b=btn, h=handler: h(b))
             self.compta_section.add_widget(btn)
             self.button_group.append(btn)
         nav_layout.addWidget(self.compta_section)
 
-        self.scrap_section = CollapsibleSection("\ud83d\udee0 Scraping")
+        self.scrap_section = CollapsibleSection("🛠️ Scraping")
+
+        self.scrap_btn = SidebarButton("Scrap", get_icon("scrap"))
+        self.scrap_btn.clicked.connect(
+            lambda _, b=self.scrap_btn: self.show_scrap_page(b)
+        )
+        self.scrap_section.add_widget(self.scrap_btn)
+        self.button_group.append(self.scrap_btn)
 
         self.profiles_btn = SidebarButton(
-            "Profil Scraping",
-            icon_path=str(BASE_DIR / "icons" / "profile.svg"),
+            "Profil Scraping", get_icon("profil_scraping")
         )
         self.profiles_btn.clicked.connect(
             lambda _, b=self.profiles_btn: self.show_profiles(b)
@@ -289,39 +260,12 @@ class MainWindow(QMainWindow):
         self.scrap_section.add_widget(self.profiles_btn)
         self.button_group.append(self.profiles_btn)
 
-        self.scrap_btn = SidebarButton("Scrap", icon_path=":/icons/scan.svg")
-        self.scrap_btn.clicked.connect(
-            lambda _, b=self.scrap_btn: self.show_scrap_page(b)
-        )
-        self.scrap_section.add_widget(self.scrap_btn)
-        self.button_group.append(self.scrap_btn)
-
-        self.gallery_btn = SidebarButton("Galerie", icon_path=":/icons/image.svg")
+        self.gallery_btn = SidebarButton("Galerie", get_icon("galerie"))
         self.gallery_btn.clicked.connect(lambda _, b=self.gallery_btn: self.show_gallery_tab())
         self.scrap_section.add_widget(self.gallery_btn)
         self.button_group.append(self.gallery_btn)
 
-        btn = SidebarButton(
-            "Scraping Descriptions",
-            icon_path=str(BASE_DIR / "icons" / "text.svg"),
-        )
-        btn.clicked.connect(
-            lambda _, b=btn: self.display_content("Scraping : Descriptions", b)
-        )
-        self.scrap_section.add_widget(btn)
-        self.button_group.append(btn)
-
-        self.scrap_settings_btn = SidebarButton(
-            "Paramètres Scraping",
-            icon_path=":/icons/settings.svg",
-        )
-        self.scrap_settings_btn.clicked.connect(
-            lambda _, b=self.scrap_settings_btn: self.show_scraping_settings_page(b)
-        )
-        self.scrap_section.add_widget(self.scrap_settings_btn)
-        self.button_group.append(self.scrap_settings_btn)
         nav_layout.addWidget(self.scrap_section)
-
         # Collapse the other section when one is expanded
         self.compta_section.toggle_button.clicked.connect(
             lambda: self._collapse_other(self.compta_section)
@@ -339,24 +283,27 @@ class MainWindow(QMainWindow):
         line.setStyleSheet("margin:5px 0;")
         sidebar_layout.addWidget(line)
 
-        self.settings_btn = SidebarButton(
-            "\u2699\ufe0f Paramètres",
-            icon_path=":/icons/settings.svg",
-        )
+
+        foot = QWidget()
+        foot_layout = QHBoxLayout(foot)
+        foot_layout.setContentsMargins(0, 0, 0, 0)
+        self.settings_btn = QPushButton()
+        self.settings_btn.setIcon(get_icon("parametres"))
         self.settings_btn.clicked.connect(self.show_settings)
-        sidebar_layout.addWidget(self.settings_btn)
-        self.button_group.append(self.settings_btn)
-
+        foot_layout.addWidget(self.settings_btn)
         if self.theme:
-            self.theme_btn = SidebarButton(
-                "",
-                icon_path=f":/icons/{'moon' if self.theme.current=='dark' else 'sun'}.svg",
+            self.theme_toggle = QCheckBox()
+            self.theme_toggle.setChecked(self.theme.current == "dark")
+            self.theme_toggle.toggled.connect(
+                lambda checked: self.theme.apply("dark" if checked else "light")
             )
-            self.theme_btn.clicked.connect(self.theme.toggle)
-            sidebar_layout.addWidget(self.theme_btn)
-            self.button_group.append(self.theme_btn)
+            foot_layout.addWidget(self.theme_toggle)
+            self.theme_label = QLabel()
+            foot_layout.addWidget(self.theme_label)
+            self._update_theme_label(self.theme.current)
             self.theme.theme_changed.connect(self._on_theme_changed)
-
+        foot_layout.addStretch()
+        sidebar_layout.addWidget(foot)
         self.stack = AnimatedStack()
         self.stack.addWidget(
             QLabel("Bienvenue sur COMPTA", alignment=Qt.AlignCenter)
@@ -368,17 +315,6 @@ class MainWindow(QMainWindow):
         self.scrap_page = ScrapWidget()
         self.stack.addWidget(self.scrap_page)
 
-        self.scraping_settings_page = ScrapingSettingsWidget(
-            self.scrap_page.modules_order,
-            show_maintenance=False,
-        )
-        self.scraping_settings_page.module_toggled.connect(
-            self.scrap_page.toggle_module
-        )
-        self.scraping_settings_page.rename_toggled.connect(
-            self.scrap_page.set_rename
-        )
-        self.stack.addWidget(self.scraping_settings_page)
 
         base_url = getattr(self, "flask_base_url", "")
         api_key = getattr(self, "api_key", None)
@@ -433,6 +369,10 @@ class MainWindow(QMainWindow):
 
         self.settings_page = SettingsWidget()
         self.stack.addWidget(self.settings_page)
+        self.copy_txt_path = r"C:\\Users\\Lamine\\Desktop\\scrap\\projet\\copy.txt"
+        self.settings_page.btn_update_txt.clicked.connect(
+            lambda: self._on_update_txt_clicked()
+        )
 
         main_layout.addWidget(sidebar_container, 1)
         main_layout.addWidget(self.stack, 4)
@@ -538,11 +478,6 @@ class MainWindow(QMainWindow):
         button.setChecked(True)
         self.stack.setCurrentWidget(self.suppliers_page)
 
-    def show_scraping_settings_page(self, button: SidebarButton) -> None:
-        self.clear_selection()
-        button.setChecked(True)
-        self.stack.setCurrentWidget(self.scraping_settings_page)
-
     def show_ventes_page(self, button: SidebarButton) -> None:
         self.clear_selection()
         button.setChecked(True)
@@ -555,13 +490,28 @@ class MainWindow(QMainWindow):
 
     def show_settings(self) -> None:
         self.clear_selection()
-        self.settings_btn.setChecked(True)
         self.stack.setCurrentWidget(self.settings_page)
 
+    def _update_theme_label(self, theme: str) -> None:
+        if hasattr(self, "theme_label"):
+            self.theme_label.setText(
+                "Mode sombre" if theme == "dark" else "Mode clair"
+            )
+
     def _on_theme_changed(self, name: str) -> None:
-        if hasattr(self, "theme_btn"):
-            self.theme_btn.setIcon(qicon("moon" if name == "dark" else "sun"))
+        if hasattr(self, "theme_toggle"):
+            block = self.theme_toggle.blockSignals(True)
+            self.theme_toggle.setChecked(name == "dark")
+            self.theme_toggle.blockSignals(block)
+        self._update_theme_label(name)
         toast(self, f"Thème {name}")
+
+    def _on_update_txt_clicked(self) -> None:
+        try:
+            msg = regenerate_copy_txt(self.copy_txt_path)
+            print(msg)
+        except Exception as e:
+            print(f"Erreur régénération copy.txt: {e}")
 
 
 
