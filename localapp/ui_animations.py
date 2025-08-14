@@ -1,11 +1,23 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
-from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QParallelAnimationGroup, QPoint, QTimer, Qt
-from PySide6.QtWidgets import QWidget, QStackedWidget, QLabel
-from PySide6.QtGui import QGraphicsOpacityEffect
+from PySide6.QtCore import (
+    QEasingCurve,
+    QParallelAnimationGroup,
+    QPropertyAnimation,
+    QPoint,
+    QTimer,
+    Qt,
+)
+from PySide6.QtWidgets import QLabel, QStackedWidget, QWidget
+try:
+    from PySide6.QtWidgets import QGraphicsOpacityEffect
+except Exception:  # pragma: no cover - gracefully degrade when Qt widgets missing
+    QGraphicsOpacityEffect = None
 
 
 def fade_in(w: QWidget, msec=180):
+    if QGraphicsOpacityEffect is None:
+        return  # pas d'animation si indisponible
     eff = QGraphicsOpacityEffect(w)
     w.setGraphicsEffect(eff)
     anim = QPropertyAnimation(eff, b"opacity", w)
@@ -23,7 +35,7 @@ class AnimatedStack(QStackedWidget):
         old = self.currentWidget()
         super().setCurrentIndex(index)
         new = self.currentWidget()
-        if not new:
+        if not new or QGraphicsOpacityEffect is None:
             return
         eff = QGraphicsOpacityEffect(new)
         new.setGraphicsEffect(eff)
