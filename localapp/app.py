@@ -506,7 +506,6 @@ class AppContext:
     def __init__(self, mw: MainWindow):
         self.mw = mw
         self.root_dir = PROJECT_ROOT
-        self.copy_txt_path = str(self.root_dir / "copy.txt")
 
     def apply_theme(self, theme: str):
         if self.mw.theme:
