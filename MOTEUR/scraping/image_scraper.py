@@ -5,11 +5,13 @@ import itertools
 import math
 import json
 import atexit
+import logging
 from contextlib import suppress
 from pathlib import Path
 from typing import Any, Callable, List, Set
 from urllib.parse import urljoin, urlparse, unquote
 from urllib.parse import urlunparse, quote
+from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
 from io import BytesIO
 import unicodedata
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -37,11 +39,50 @@ try:
 except Exception:
     Image = None
 
+logger = logging.getLogger(__name__)
+
 DEFAULT_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/124.0.0.0 Safari/537.36"
 )
+
+
+def _best_from_srcset(srcset: str | None) -> str | None:
+    if not srcset:
+        return None
+    parts = [p.strip() for p in srcset.split(',') if p.strip()]
+    return parts[-1].split()[0] if parts else None  # dernière = + grande largeur
+
+
+def _normalize_shopify_url(u: str, enforce_width: int | None = 1024) -> str:
+    if not u:
+        return u
+    if u.startswith('//'):
+        u = 'https:' + u
+    s = urlsplit(u)
+    q = dict(parse_qsl(s.query, keep_blank_values=True))
+    # On conserve ?v=..., on supprime width pour la clé de dédup
+    q.pop('width', None)
+    if enforce_width:
+        q['width'] = str(enforce_width)
+    return urlunsplit((s.scheme, s.netloc, s.path, urlencode(q), s.fragment))
+
+
+def _dedupe_preserve_order(urls: list[str]) -> list[str]:
+    seen = set()
+    out = []
+    for u in urls:
+        s = urlsplit(u)
+        q = dict(parse_qsl(s.query, keep_blank_values=True))
+        v = q.get('v')
+        q.pop('width', None)
+        key = (s.netloc, s.path, v)  # ignore width, garde version
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(u)
+    return out
 
 # -------------------- Performance & comportement (env overrides) --------------------
 STATIC_SCRAPE_FIRST = bool(int(os.getenv("STATIC_SCRAPE_FIRST", "1")))   # tenter requests+BS4 avant Selenium
@@ -208,21 +249,39 @@ def _collect_images_static(url: str, selector: str | None, session: requests.Ses
         from bs4 import BeautifulSoup
 
         soup = BeautifulSoup(html, "html.parser")
-        nodes = []
-        if selector:
-            nodes = soup.select(selector)
+        # Ne viser que le carrousel principal, pas les thumbnails
+        gallery_imgs = soup.select('.product-gallery__media img, [data-media-type="image"] img')
+        gallery_imgs = [
+            img
+            for img in gallery_imgs
+            if 'product-gallery__thumbnail' not in ' '.join(img.get('class', []))
+        ]
+
+        collected: list[str] = []
+        for img in gallery_imgs:
+            url = img.get('src') or _best_from_srcset(img.get('srcset')) or img.get('data-src')
+            if not url:
+                continue
+            url = _normalize_shopify_url(url, enforce_width=1024)
+            collected.append(url)
+
+        unique_urls = _dedupe_preserve_order(collected)
+
+        limit = int(os.getenv('MAX_IMAGES_PER_PRODUCT', '6'))
+        if limit <= 0:
+            final_urls = unique_urls
         else:
-            nodes = soup.select(
-                ".woocommerce-product-gallery__image a, .product__media a, a[href$='.jpg'], a[href$='.webp'], img[src]"
-            )
-        urls = []
-        for n in nodes:
-            href = n.get("href") or n.get("src") or ""
-            if href:
-                href_norm = _normalize_url(href) if not href.startswith("//") else "https:" + href
-                if href_norm and _is_useful_image_url(href_norm):
-                    urls.append(href_norm)
-        return list(dict.fromkeys(urls))
+            final_urls = unique_urls[:limit]
+
+        logger.info(
+            "Images: collected=%s, unique=%s, limited=%s",
+            len(collected),
+            len(unique_urls),
+            len(final_urls),
+        )
+
+        # >>> utiliser final_urls pour la suite du pipeline de téléchargement
+        return final_urls
     return []
 
 
@@ -260,22 +319,42 @@ def _collect_images_selenium(driver, url: str, selector: str | None) -> list[str
         return []
     _scroll_quick(driver)
     if selector:
-        nodes = driver.find_elements("css selector", selector)
+        elems = driver.find_elements("css selector", selector)
     else:
-        nodes = driver.find_elements(
-            "css selector", ".woocommerce-product-gallery__image a, .product__media a, img"
+        elems = driver.find_elements(
+            "css selector", ".product-gallery__media img, [data-media-type='image'] img"
         )
-    urls = []
-    for el in nodes:
-        href = ""
-        with suppress(Exception):
-            href = el.get_attribute("href") or el.get_attribute("src") or ""
-        if href:
-            href_norm = _normalize_url(href) if not href.startswith("//") else "https:" + href
-            if href_norm and _is_useful_image_url(href_norm):
-                urls.append(href_norm)
-    _try_slider_clicks(driver, ".flickity-page-dots .dot")
-    return list(dict.fromkeys(urls))
+
+    urls: list[str] = []
+    for e in elems:
+        classes = (e.get_attribute("class") or "")
+        if "product-gallery__thumbnail" in classes.split():
+            continue
+        u = (
+            e.get_attribute("src")
+            or _best_from_srcset(e.get_attribute("srcset"))
+            or e.get_attribute("data-src")
+        )
+        if not u:
+            continue
+        urls.append(_normalize_shopify_url(u, enforce_width=1024))
+
+    unique_urls = _dedupe_preserve_order(urls)
+
+    limit = int(os.getenv('MAX_IMAGES_PER_PRODUCT', '6'))
+    if limit <= 0:
+        final_urls = unique_urls
+    else:
+        final_urls = unique_urls[:limit]
+
+    logger.info(
+        "Images: collected=%s, unique=%s, limited=%s",
+        len(urls),
+        len(unique_urls),
+        len(final_urls),
+    )
+
+    return final_urls
 
 def build_uploads_url(
     product_slug: str,
