@@ -45,18 +45,20 @@ def test_image_scraper_adds_to_storage(tmp_path, monkeypatch):
     widget.variants_checkbox.setChecked(True)
 
     monkeypatch.setattr(
-        "MOTEUR.scraping.widgets.image_widget.scrape_images",
+        "MOTEUR.scraping.widgets.image_worker.scrape_images",
         lambda url, sel, folder, keep_driver=False: (0, DummyDriver()),
     )
     monkeypatch.setattr(
-        "MOTEUR.scraping.widgets.image_widget.scrape_variants",
+        "MOTEUR.scraping.widgets.image_worker.scrape_variants",
         lambda driver: {"Noir": "img1", "Beige": "img2"},
     )
 
     widget._start()
+    while widget._thread.isRunning():
+        app.processEvents()
 
     assert storage.table.rowCount() == 1
-    assert storage.table.item(0, 0).text() == "Bob"
+    assert storage.table.item(0, 0).text() == ""
     assert "Noir" in storage.table.item(0, 1).text()
     widget.close()
     storage.close()

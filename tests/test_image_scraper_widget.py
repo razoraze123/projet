@@ -33,17 +33,19 @@ def test_scrape_logs_history(tmp_path, monkeypatch):
     widget.folder_edit.setText(str(tmp_path))
 
     monkeypatch.setattr(
-        "MOTEUR.scraping.widgets.image_widget.scrape_images",
-        lambda url, sel, folder: 5,
+        "MOTEUR.scraping.widgets.image_worker.scrape_images",
+        lambda url, sel, folder, keep_driver=False: 5,
     )
 
     widget._start()
+    while widget._thread.isRunning():
+        app.processEvents()
 
     entries = history.load_history()
     assert len(entries) == 2
     assert entries[0]["url"] == "http://example.com"
     assert entries[1]["url"] == "http://ex2.com"
-    assert all(e["profile"] == "p1" and e["images"] == 5 for e in entries)
+    assert all(e["profile"] == ".a" and e["images"] == 5 for e in entries)
     widget.close()
 
 

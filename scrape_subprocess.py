@@ -39,7 +39,7 @@ def main():
     for i, url in enumerate(urls, 1):
         try:
             if cfg["with_variants"]:
-                count, driver = scrape_images(url, cfg["selector"], cfg["folder"], keep_driver=True)
+                total, driver = scrape_images(url, cfg["selector"], cfg["folder"], keep_driver=True)
                 try:
                     driver.find_element(By.TAG_NAME, "h1")
                 except Exception:
@@ -47,10 +47,10 @@ def main():
                 variants = scrape_variants(driver)
                 driver.quit()
             else:
-                count = scrape_images(url, cfg["selector"], cfg["folder"])
+                total = scrape_images(url, cfg["selector"], cfg["folder"])
                 variants = {}
-            history.log_scrape(url, cfg["selector"], count, cfg["folder"])
-            print_safe(json.dumps({"event": "item", "url": url, "total": count, "variants": variants}))
+            history.log_scrape(url, cfg["selector"], total, cfg["folder"])
+            print_safe(json.dumps({"event": "item", "url": url, "total": total, "variants": variants}))
             sys.stdout.flush()
         except Exception as e:
             print_safe(json.dumps({"event": "log", "msg": f"Erreur sur {url}: {e}"}))
